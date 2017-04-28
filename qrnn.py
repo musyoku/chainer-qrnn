@@ -1,81 +1,9 @@
 import chainer.links as L
 import chainer.functions as F
 import numpy as np
-from chainer import cuda, Function, Variable, Chain, function
+from chainer import cuda, Function, Variable, Chain, function, link, functions
 from chainer.utils import type_check
-
-THREADS_PER_BLOCK = 32
-
-class STRNNFunction(Function):
-
-	def forward_gpu(self, inputs):
-		f, z, hinit = inputs
-		b, t, c = f.shape
-		assert c % THREADS_PER_BLOCK == 0
-		self.h = cuda.cupy.zeros((b, t + 1, c), dtype=np.float32)
-		self.h[:, 0, :] = hinit
-		cuda.raw('''
-			#define THREADS_PER_BLOCK 32
-			extern "C" __global__ void strnn_fwd(
-					const CArray<float, 3> f, const CArray<float, 3> z,
-					CArray<float, 3> h) {
-				int index[3];
-				const int t_size = f.shape()[1];
-				index[0] = blockIdx.x;
-				index[1] = 0;
-				index[2] = blockIdx.y * THREADS_PER_BLOCK + threadIdx.x;
-				float prev_h = h[index];
-				for (int i = 0; i < t_size; i++){
-					index[1] = i;
-					const float ft = f[index];
-					const float zt = z[index];
-					index[1] = i + 1;
-					float &ht = h[index];
-					prev_h = prev_h * ft + zt;
-					ht = prev_h;
-				}
-			}''', 'strnn_fwd')(
-				(b, c // THREADS_PER_BLOCK), (THREADS_PER_BLOCK,),
-				(f, z, self.h))
-		return self.h[:, 1:, :],
-
-	def backward_gpu(self, inputs, grads):
-		f, z = inputs[:2]
-		gh, = grads
-		b, t, c = f.shape
-		gz = cuda.cupy.zeros_like(gh)
-		cuda.raw('''
-			#define THREADS_PER_BLOCK 32
-			extern "C" __global__ void strnn_back(
-				const CArray<float, 3> f, const CArray<float, 3> gh,
-				CArray<float, 3> gz) {
-				int index[3];
-				const int t_size = f.shape()[1];
-				index[0] = blockIdx.x;
-				index[2] = blockIdx.y * THREADS_PER_BLOCK + threadIdx.x;
-				index[1] = t_size - 1;
-				float &gz_last = gz[index];
-				gz_last = gh[index];
-				float prev_gz = gz_last;
-				for (int i = t_size - 1; i > 0; i--){
-					index[1] = i;
-					const float ft = f[index];
-					index[1] = i - 1;
-					const float ght = gh[index];
-					float &gzt = gz[index];
-					prev_gz = prev_gz * ft + ght;
-					gzt = prev_gz;
-				}
-			}''', 'strnn_back')(
-				(b, c // THREADS_PER_BLOCK), (THREADS_PER_BLOCK,),
-				(f, gh, gz))
-		gf = self.h[:, :-1, :] * gz
-		ghinit = f[:, 0, :] * gz[:, 0, :]
-		return gf, gz, ghinit
-
-
-def strnn(f, z, h0):
-	return STRNNFunction()(f, z, h0)
+from chainer.functions import sigmoid, tanh, expand_dims, concat
 
 
 def attention_sum(encoding, query):
@@ -123,64 +51,86 @@ def zoneout(x, ratio=.5, train=True):
 		return Zoneout(ratio)(x)
 	return x
 
-class QRNN(L.ConvolutionND):
+class QRNN(link.Chain):
 	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5):
 		self.num_split = len(pooling) + 1
-		super(QRNN, self).__init__(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1)
+		super(QRNN, self).__init__(W=L.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1))
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
 
 	def __call__(self, x, test=False):
 		assert isinstance(x, Variable)
 		self._test = test
-		return self.pool(F.split_axis(super(QRNN, self).__call__(x), self.num_split, axis=2))
+		# remove right paddings
+		# e.g.
+		# kernel_size = 3
+		# pad = 2
+		# input sequence with paddings:
+		# [0, 0, x1, x2, x3, 0, 0]
+		# |< t1 >|
+		#     |< t2 >|
+		#         |< t3 >|
+		pad = self._kernel_size - 1
+		Wx = self.W(x)[:, :, :-pad]
+		return self.pool(F.split_axis(Wx, self.num_split, axis=1))
 
 	def zoneout(self, u):
 		if self._zoneout:
 			return 1 - zoneout(F.sigmoid(-u), ratio=self._zoneout_ratio, train=not self._test)
 		return F.sigmoid(u)
 
-	def pool(self, conv):
+	def pool(self, Wx):
 		# f-pooling
-		if self._pooling == "f":
-			assert len(conv) == 2
-			z, f = conv
-			z = F.tanh(z)
-			f = self.zoneout(f)
-			print f.data
-			if self.h is None:
-				self.h = (1 - f) * z
-			else:
-				self.h = f * self.h + (1 - f) * z
+		if len(self._pooling) == 1:
+			assert len(Wx) == 2
+			Z, F = Wx
+			Z = tanh(Z)
+			F = self.zoneout(F)
+			for t in xrange(Z.shape[2]):
+				z = Z[:, :, t]
+				f = F[:, :, t]
+				if t == 0:
+					self.h = (1 - f) * z
+				else:
+					self.h = f * self.h + (1 - f) * z
 			return self.h
 
 		# fo-pooling
-		if self._pooling == "fo":
-			assert len(conv) == 3
-			z, f, o = conv
-			z = F.tanh(z)
-			f = self.zoneout(f)
-			o = F.sigmoid(o)
-			if self.c is None:
-				self.c = (1 - f) * z
-			else:
-				self.c = f * self.c + (1 - f) * z
-			self.h = o * self.c
+		if len(self._pooling) == 2:
+			assert len(Wx) == 3
+			Z, F, O = Wx
+			Z = tanh(Z)
+			F = self.zoneout(F)
+			O = sigmoid(O)
+			for t in xrange(Z.shape[2]):
+				z = Z[:, :, t]
+				f = F[:, :, t]
+				o = F[:, :, t]
+				if t == 0:
+					self.c = (1 - f) * z
+				else:
+					self.c = f * self.c + (1 - f) * z
+				self.h = o * self.c
 			return self.h
 
 		# ifo-pooling
-		if self._pooling == "ifo":
-			assert len(conv) == 4
-			z, f, o, i = conv
-			z = F.tanh(z)
-			f = self.zoneout(f)
-			o = F.sigmoid(o)
-			i = F.sigmoid(i)
-			if self.c is None:
-				self.c = (1 - f) * z
-			else:
-				self.c = f * self.c + i * z
-			self.h = o * self.c
+		if len(self._pooling) == 3:
+			assert len(Wx) == 4
+			Z, F, O, I = Wx
+			Z = tanh(Z)
+			F = self.zoneout(F)
+			O = sigmoid(O)
+			I = sigmoid(I)
+			for t in xrange(Z.shape[2]):
+				z = Z[:, :, t]
+				f = F[:, :, t]
+				o = F[:, :, t]
+				i = F[:, :, t]
+				if t == 0:
+					self.c = (1 - f) * z
+				else:
+					self.c = f * self.c + i * z
+				self.h = o * self.c
 			return self.h
 
 		raise Exception()
@@ -192,6 +142,154 @@ class QRNN(L.ConvolutionND):
 		self.c = c
 		self.h = h
 
+	def get_state(self):
+		return self.c, self.h
+
+class QRNNDecoder(QRNN):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5):
+		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio)
+		self.num_split = len(pooling) + 1
+		self.add_link("V", L.Linear(out_channels, self.num_split * out_channels))
+		self.add_link('o', L.Linear(2 * out_channels, out_channels))
+
+	# x is the input of the decoder
+	# h is the final encoder hidden state
+	def __call__(self, x, h, test=False):
+		assert isinstance(x, Variable)
+		self._test = test
+		pad = self._kernel_size - 1
+		Wx = self.W(x)[:, :, :-pad]
+		Vh = self.V(h)
+		# copy Vh
+		# e.g.
+		# Wx = [[[  0	1	2]
+		# 		 [	3	4	5]
+		# 		 [	6	7	8]
+		# Vh = [[11, 12, 13]]
+		# 
+		# Vh, Wx = F.broadcast(F.expand_dims(Vh, axis=2), Wx)
+		# 
+		# Wx = [[[  0	1	2]
+		# 		 [	3	4	5]
+		# 		 [	6	7	8]
+		# Vh = [[[ 	11	11	11]
+		# 		 [	12	12	12]
+		# 		 [	13	13	13]
+		Vh, Wx = F.broadcast(F.expand_dims(Vh, axis=2), Wx)
+		return self.pool(F.split_axis(Wx + Vh, self.num_split, axis=1))
+
+# QRNNAttentiveEncoder preserves all hidden states
+class QRNNAttentiveEncoder(QRNN):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5):
+		super(QRNNAttentiveEncoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio)
+
+	def pool(self, Wx):
+		# f-pooling
+		if len(self._pooling) == 1:
+			assert len(Wx) == 2
+			Z, F = Wx
+			Z = tanh(Z)
+			F = self.zoneout(F)
+			for t in xrange(Z.shape[2]):
+				z = Z[:, :, t]
+				f = F[:, :, t]
+				if t == 0:
+					self.H = expand_dims((1 - f) * z, 1)
+				else:
+					h = f * self.H[:, -1, :] + (1 - f) * z
+					h = expand_dims(h, 1)
+					self.H = concat((self.H, h), axis=1)
+			return self.H
+
+		# fo-pooling
+		if len(self._pooling) == 2:
+			assert len(Wx) == 3
+			Z, F, O = Wx
+			Z = tanh(Z)
+			F = self.zoneout(F)
+			O = sigmoid(O)
+			for t in xrange(Z.shape[2]):
+				z = Z[:, :, t]
+				f = F[:, :, t]
+				o = F[:, :, t]
+				if t == 0:
+					self.c = (1 - f) * z
+				else:
+					self.c = f * self.c + (1 - f) * z
+				h = o * self.c
+				h = expand_dims(h, 1)
+				if t == 0:
+					self.H = h
+				else:
+					self.H = concat((self.H, h), axis=1)
+			return self.H
+
+		# ifo-pooling
+		if len(self._pooling) == 3:
+			assert len(Wx) == 4
+			Z, F, O, I = Wx
+			Z = tanh(Z)
+			F = self.zoneout(F)
+			O = sigmoid(O)
+			I = sigmoid(I)
+			for t in xrange(Z.shape[2]):
+				z = Z[:, :, t]
+				f = F[:, :, t]
+				o = F[:, :, t]
+				i = F[:, :, t]
+				if t == 0:
+					self.c = (1 - f) * z
+				else:
+					self.c = f * self.c + i * z
+				h = o * self.c
+				h = expand_dims(h, 1)
+				if t == 0:
+					self.H = h
+				else:
+					self.H = concat((self.H, h), axis=1)
+			return self.H
+
+		raise Exception()
+
+	def set_state(self, c, H):
+		self.c = c
+		self.H = H
+
+	def get_state(self):
+		return self.c, self.H
+
+class QRNNAttentiveDecoder(QRNN):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5):
+		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio)
+		self.num_split = len(pooling) + 1
+		self.add_link("V", L.Linear(out_channels, self.num_split * out_channels))
+		self.add_link('o', L.Linear(2 * out_channels, out_channels))
+
+	# x is the input of the decoder
+	# h is the final encoder hidden state
+	def __call__(self, x, h, test=False):
+		assert isinstance(x, Variable)
+		self._test = test
+		pad = self._kernel_size - 1
+		Wx = self.W(x)[:, :, :-pad]
+		Vh = self.V(h)
+		# copy Vh
+		# e.g.
+		# Wx = [[[  0	1	2]
+		# 		 [	3	4	5]
+		# 		 [	6	7	8]
+		# Vh = [[11, 12, 13]]
+		# 
+		# Vh, Wx = F.broadcast(F.expand_dims(Vh, axis=2), Wx)
+		# 
+		# Wx = [[[  0	1	2]
+		# 		 [	3	4	5]
+		# 		 [	6	7	8]
+		# Vh = [[[ 	11	11	11]
+		# 		 [	12	12	12]
+		# 		 [	13	13	13]
+		Vh, Wx = F.broadcast(F.expand_dims(Vh, axis=2), Wx)
+		return self.pool(F.split_axis(Wx + Vh, self.num_split, axis=1))
 
 class QRNNLayer(Chain):
 
@@ -227,8 +325,7 @@ class QRNNLayer(Chain):
 				xtminus1 = self.x
 			ret = self.W(x) + self.V(xtminus1)
 		else:
-			ret = F.swapaxes(self.conv(
-				F.swapaxes(x, 1, 2))[:, :, :x.shape[2]], 1, 2)
+			ret = F.swapaxes(self.conv(F.swapaxes(x, 1, 2))[:, :, :x.shape[2]], 1, 2)
 
 		if not self.attention:
 			return ret
