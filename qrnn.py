@@ -2,9 +2,9 @@ from __future__ import division
 from __future__ import print_function
 from six.moves import xrange
 import numpy as np
-from chainer import cuda, Variable, function, link, functions, links
+from chainer import cuda, Variable, function, link, functions, links, initializers
 from chainer.utils import type_check
-from chainer.links import EmbedID, Linear
+from chainer.links import EmbedID, Linear, BatchNormalization
 
 class Zoneout(function.Function):
 	def __init__(self, zoneout_ratio):
@@ -27,15 +27,13 @@ class Zoneout(function.Function):
 	def backward(self, x, gy):
 		return gy[0] * self.mask,
 
-def zoneout(x, ratio=.5, train=True):
-	if train:
-		return Zoneout(ratio)(x)
-	return x
+def zoneout(x, ratio=.5):
+	return Zoneout(ratio)(x)
 
 class QRNN(link.Chain):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5, weight_std=1):
 		self.num_split = len(pooling) + 1
-		super(QRNN, self).__init__(W=links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1))
+		super(QRNN, self).__init__(W=links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.Normal(weight_std)))
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
 
@@ -56,8 +54,8 @@ class QRNN(link.Chain):
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1))
 
 	def zoneout(self, U):
-		if self._zoneout:
-			return 1 - zoneout(functions.sigmoid(-U), ratio=self._zoneout_ratio, train=not self._test)
+		if self._zoneout and self._test == False:
+			return 1 - zoneout(functions.sigmoid(-U), self._zoneout_ratio)
 		return functions.sigmoid(U)
 
 	def pool(self, WX):

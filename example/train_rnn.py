@@ -206,9 +206,9 @@ class QRNN(Chain):
 	def __init__(self, num_vocab, ndim_embedding):
 		super(QRNN, self).__init__(
 			embed=L.EmbedID(num_vocab, ndim_embedding, ignore_label=0),
-			l1=L.QRNN(ndim_embedding, ndim_embedding, kernel_size=4, pooling="fo", zoneout=True),
-			l2=L.QRNN(ndim_embedding, ndim_embedding, kernel_size=4, pooling="fo", zoneout=True),
-			l3=L.Linear(ndim_embedding, num_vocab),
+			l1=L.QRNN(ndim_embedding, 256, kernel_size=4, pooling="fo", zoneout=True),
+			l2=L.QRNN(256, 256, kernel_size=4, pooling="fo", zoneout=True),
+			l3=L.Linear(256, num_vocab),
 		)
 		for param in self.params():
 			param.data[...] = np.random.uniform(-0.1, 0.1, param.data.shape)
@@ -222,18 +222,20 @@ class QRNN(Chain):
 	# we use "dense convolution"
 	# https://arxiv.org/abs/1608.06993
 	def __call__(self, X, test=False):
+		batchsize = X.shape[0]
+		seq_length = X.shape[2]
 		H0 = self.embed(X)
 		H0 = F.swapaxes(H0, 1, 2)
 		self.l1(H0, test=test)
-		H1 = self.l1.get_all_hidden_states() + H0
+		H1 = self.l1.get_all_hidden_states()
 		self.l2(H1, test=test)
 		H2 = self.l2.get_all_hidden_states() + H1
-		H2 = F.reshape(F.swapaxes(H2, 1, 2), (-1, self.ndim_embedding))
+		H2 = F.reshape(F.swapaxes(H2, 1, 2), (batchsize * seq_length, -1))
 		Y = self.l3(H2)
 		return Y
 
 def main():
-	ndim_embedding = 512
+	ndim_embedding = 128
 
 	# load textfile
 	train_dataset, validation_dataset, test_dataset, vocab = read_data(args.input_filename)
@@ -280,7 +282,7 @@ def main():
 
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
-			if itr % 2 == 0:
+			if itr % 100 == 0:
 				print("\raccuracy: {} (train), {} (validation)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				print("\rppl: {} (train), {} (validation)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
 				save_model("rnn.model", model)
