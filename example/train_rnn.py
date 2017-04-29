@@ -9,6 +9,7 @@ import chainer.functions as F
 from chainer import training, Variable, Chain, serializers
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
+from eve import Eve
 import qrnn as L
 
 _bucket_sizes = [10, 20, 40, 60, 100, 120]
@@ -116,9 +117,16 @@ def save_model(filename, chain):
 		os.remove(filename)
 	serializers.save_hdf5(filename, chain)
 
+def load_model(filename, chain):
+	if os.path.isfile(filename):
+		print("loading {} ...".format(filename))
+		serializers.load_hdf5(filename, chain)
+	else:
+		pass
+
 def compute_accuracy(model, buckets):
 	acc = []
-	batchsize = 50
+	batchsize = 100
 	for dataset in buckets:
 		# split into minibatch
 		if len(dataset) > batchsize:
@@ -135,6 +143,18 @@ def compute_accuracy(model, buckets):
 				target.to_gpu()
 			Y = model(source)
 			acc.append(float(F.accuracy(Y, target).data))
+	return reduce(lambda x, y: x + y, acc) / len(acc)
+
+def compute_minibatch_accuracy(model, buckets, batchsize=100):
+	acc = []
+	for dataset in buckets:
+		batch = sample_batch_from_bucket(dataset, batchsize)
+		source, target = make_source_target_pair(batch)
+		if args.gpu_device >= 0:
+			source.to_gpu()
+			target.to_gpu()
+		Y = model(source)
+		acc.append(float(F.accuracy(Y, target).data))
 	return reduce(lambda x, y: x + y, acc) / len(acc)
 
 class QRNN(Chain):
@@ -188,12 +208,13 @@ def main():
 
 	# init
 	model = QRNN(vocab_size, ndim_embedding)
+	load_model("rnn.model", model)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
 	# setup an optimizer
-	optimizer = chainer.optimizers.Adam(alpha=0.001, beta1=0.9)
+	optimizer = Eve(alpha=0.001, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.gradclip))
 
@@ -211,10 +232,11 @@ def main():
 				loss = F.softmax_cross_entropy(Y, target)
 				optimizer.update(lossfun=lambda: loss)
 
-			print(itr, num_iteration)
+			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
+			sys.stdout.flush()
 			if itr % 100 == 0:
+				print("\raccuracy: {} (train), {} (validation)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				save_model("rnn.model", model)
-				print(compute_accuracy(model, validation_buckets))
 
 if __name__ == "__main__":
 	main()
