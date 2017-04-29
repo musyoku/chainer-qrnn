@@ -13,31 +13,32 @@ from eve import Eve
 import qrnn as L
 
 _bucket_sizes = [10, 20, 40, 60, 100, 120]
+ID_PAD = 0
+ID_UNK = 1
+ID_BOS = 2
+ID_EOS = 3
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--batchsize", "-b", type=int, default=50, help="Number of examples in each mini-batch")
-parser.add_argument("--bproplen", "-l", type=int, default=35, help="Number of words in each mini-batch (= length of truncated BPTT)")
-parser.add_argument("--epoch", "-e", type=int, default=39, help="Number of sweeps over the dataset to train")
-parser.add_argument("--gpu_device", "-g", type=int, default=0, help="GPU ID (negative value indicates CPU)")
-parser.add_argument("--gradclip", "-c", type=float, default=5, help="Gradient norm threshold to clip")
-parser.add_argument("--out", "-o", default="result", help="Directory to output the result")
-parser.add_argument("--resume", "-r", default="", help="Resume the training from snapshot")
-parser.add_argument("--test", action="store_true", help="Use tiny datasets for quick tests")
-parser.set_defaults(test=False)
-parser.add_argument("--unit", "-u", type=int, default=650, help="Number of LSTM units in each layer")
-parser.add_argument("--model", "-m", default="model.npz", help="Model file name to serialize")
-parser.add_argument("--input-filename", "-i", default=None, help="Model file name to serialize")
+parser.add_argument("--batchsize", "-b", type=int, default=50)
+parser.add_argument("--epoch", "-e", type=int, default=30)
+parser.add_argument("--gpu-device", "-g", type=int, default=0) 
+parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
+parser.add_argument("--ndim-h", "-nh", type=int, default=256)
+parser.add_argument("--ndim-embedding", "-ne", type=int, default=128)
+parser.add_argument("--pooling", "-p", type=str, default="fo")
+parser.add_argument("--wstd", "-w", type=float, default=1)
+parser.add_argument("--text-filename", "-f", default=None)
+parser.add_argument("--model-filename", "-m", type=str, default=None)
+parser.add_argument("--zoneout", default=False, action="store_true")
 args = parser.parse_args()
 
 def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed=0):
 	assert(train_split_ratio + validation_split_ratio <= 1)
-	id_pad = 0
-	id_bos = 1
-	id_eos = 2
 	vocab = {
-		"<pad>": id_pad,
-		"<bos>": id_bos,
-		"<eos>": id_eos,
+		"<pad>": ID_PAD,
+		"<unk>": ID_UNK,
+		"<bos>": ID_BOS,
+		"<eos>": ID_EOS,
 	}
 	dataset = []
 	with codecs.open(filepath, "r", "utf-8") as f:
@@ -45,14 +46,14 @@ def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed
 			sentence = sentence.strip()
 			if len(sentence) == 0:
 				continue
-			word_ids = [id_bos]
+			word_ids = [ID_BOS]
 			words = sentence.split(" ")
 			for word in words:
 				if word not in vocab:
 					vocab[word] = len(vocab)
 				word_id = vocab[word]
 				word_ids.append(word_id)
-			word_ids.append(id_eos)
+			word_ids.append(ID_EOS)
 			dataset.append(word_ids)
 
 	random.seed(seed)
@@ -90,7 +91,7 @@ def make_batch_buckets(dataset):
 			if length <= size:
 				if size - length > 0:
 					for _ in xrange(size - length):
-						word_ids.append(0)
+						word_ids.append(ID_PAD)
 				break
 			bucket_index += 1
 		buckets_list[bucket_index].append(word_ids)
@@ -130,7 +131,7 @@ def compute_accuracy_batch(model, batch):
 		source.to_gpu()
 		target.to_gpu()
 	Y = model(source, test=True)
-	return float(F.accuracy(Y, target, ignore_label=0).data)
+	return float(F.accuracy(Y, target, ignore_label=ID_PAD).data)
 
 def compute_accuracy(model, buckets):
 	acc = []
@@ -171,7 +172,7 @@ def compute_perplexity_batch(model, batch):
 		log_likelihood = 0
 		num_tokens = 0
 		for t in xrange(len(seq)):
-			if target[t] == 0:
+			if target[t] == ID_PAD:
 				break
 			log_likelihood += math.log(seq[t, target[t]])
 			num_tokens += 1
@@ -203,16 +204,13 @@ def compute_minibatch_perplexity(model, buckets, batchsize=100):
 	return reduce(lambda x, y: x + y, ppl) / len(ppl)
 
 class QRNN(Chain):
-	def __init__(self, num_vocab, ndim_embedding):
+	def __init__(self, num_vocab, ndim_embedding, ndim_h, pooling="fo", zoneout=False, wstd=1):
 		super(QRNN, self).__init__(
 			embed=L.EmbedID(num_vocab, ndim_embedding, ignore_label=0),
-			l1=L.QRNN(ndim_embedding, 256, kernel_size=4, pooling="fo", zoneout=True),
-			l2=L.QRNN(256, 256, kernel_size=4, pooling="fo", zoneout=True),
-			l3=L.Linear(256, num_vocab),
+			l1=L.QRNN(ndim_embedding, ndim_h, kernel_size=4, pooling=pooling, zoneout=zoneout, wstd=wstd),
+			l2=L.QRNN(ndim_h, ndim_h, kernel_size=4, pooling=pooling, zoneout=zoneout, wstd=wstd),
+			l3=L.Linear(ndim_h, num_vocab),
 		)
-		for param in self.params():
-			param.data[...] = np.random.uniform(-0.1, 0.1, param.data.shape)
-
 		self.ndim_embedding = ndim_embedding
 
 	def reset_state(self):
@@ -223,7 +221,7 @@ class QRNN(Chain):
 	# https://arxiv.org/abs/1608.06993
 	def __call__(self, X, test=False):
 		batchsize = X.shape[0]
-		seq_length = X.shape[2]
+		seq_length = X.shape[1]
 		H0 = self.embed(X)
 		H0 = F.swapaxes(H0, 1, 2)
 		self.l1(H0, test=test)
@@ -235,10 +233,8 @@ class QRNN(Chain):
 		return Y
 
 def main():
-	ndim_embedding = 128
-
 	# load textfile
-	train_dataset, validation_dataset, test_dataset, vocab = read_data(args.input_filename)
+	train_dataset, validation_dataset, test_dataset, vocab = read_data(args.text_filename)
 	vocab_size = len(vocab)
 	print("#train =", len(train_dataset))
 	print("#validation =", len(validation_dataset))
@@ -254,8 +250,8 @@ def main():
 		print("{}	{}".format(size, len(data)))
 
 	# init
-	model = QRNN(vocab_size, ndim_embedding)
-	load_model("rnn.model", model)
+	model = QRNN(vocab_size, args.ndim_embedding, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
+	load_model(args.model_filename, model)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -264,7 +260,7 @@ def main():
 	optimizer = Eve(alpha=0.001, beta1=0.9)
 	# optimizer = optimizers.Adam(alpha=0.0005, beta1=0.9)
 	optimizer.setup(model)
-	optimizer.add_hook(chainer.optimizer.GradientClipping(args.gradclip))
+	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
@@ -282,10 +278,10 @@ def main():
 
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
-			if itr % 100 == 0:
+			if itr % 500 == 0:
 				print("\raccuracy: {} (train), {} (validation)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				print("\rppl: {} (train), {} (validation)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
-				save_model("rnn.model", model)
+				save_model(args.model_filename, model)
 
 if __name__ == "__main__":
 	main()
