@@ -2,11 +2,11 @@
 from __future__ import division
 from __future__ import print_function
 from six.moves import xrange
-import argparse, sys, os, codecs, random
+import argparse, sys, os, codecs, random, math
 import numpy as np
 import chainer
 import chainer.functions as F
-from chainer import training, Variable, Chain, serializers
+from chainer import training, Variable, Chain, serializers, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
@@ -35,9 +35,9 @@ def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed
 	id_bos = 1
 	id_eos = 2
 	vocab = {
+		"<pad>": id_pad,
 		"<bos>": id_bos,
 		"<eos>": id_eos,
-		"<pad>": id_pad,
 	}
 	dataset = []
 	with codecs.open(filepath, "r", "utf-8") as f:
@@ -124,6 +124,14 @@ def load_model(filename, chain):
 	else:
 		pass
 
+def compute_accuracy_batch(model, batch):
+	source, target = make_source_target_pair(batch)
+	if args.gpu_device >= 0:
+		source.to_gpu()
+		target.to_gpu()
+	Y = model(source, test=True)
+	return float(F.accuracy(Y, target, ignore_label=0).data)
+
 def compute_accuracy(model, buckets):
 	acc = []
 	batchsize = 100
@@ -137,25 +145,62 @@ def compute_accuracy(model, buckets):
 			sections = [dataset]
 		# compute accuracy
 		for batch in sections:
-			source, target = make_source_target_pair(batch)
-			if args.gpu_device >= 0:
-				source.to_gpu()
-				target.to_gpu()
-			Y = model(source)
-			acc.append(float(F.accuracy(Y, target).data))
+			acc.append(compute_accuracy_batch(model, batch))
 	return reduce(lambda x, y: x + y, acc) / len(acc)
 
 def compute_minibatch_accuracy(model, buckets, batchsize=100):
 	acc = []
 	for dataset in buckets:
 		batch = sample_batch_from_bucket(dataset, batchsize)
-		source, target = make_source_target_pair(batch)
-		if args.gpu_device >= 0:
-			source.to_gpu()
-			target.to_gpu()
-		Y = model(source)
-		acc.append(float(F.accuracy(Y, target).data))
+		acc.append(compute_accuracy_batch(model, batch))
 	return reduce(lambda x, y: x + y, acc) / len(acc)
+
+def compute_perplexity_batch(model, batch):
+	sum_log_likelihood = 0
+	source, target = make_source_target_pair(batch)
+	if args.gpu_device >= 0:
+		source.to_gpu()
+		target.to_gpu()
+	Y = F.softmax(model(source, test=True))
+	P = Y[target.data].data
+	xp = cuda.get_array_module(*P)
+	num_sections = batch.shape[0]
+	seq_batch = xp.split(P, num_sections)
+	target_batch = xp.split(target.data, num_sections)
+	for seq, target in zip(seq_batch, target_batch):
+		log_likelihood = 0
+		num_tokens = 0
+		for t in xrange(len(seq)):
+			if target[t] == 0:
+				break
+			log_likelihood += math.log(seq[t, target[t]])
+			num_tokens += 1
+		assert num_tokens > 0
+		sum_log_likelihood += log_likelihood / num_tokens
+	return math.exp(-sum_log_likelihood / num_sections)
+
+def compute_perplexity(model, buckets):
+	ppl = []
+	batchsize = 100
+	for dataset in buckets:
+		# split into minibatch
+		if len(dataset) > batchsize:
+			num_sections = len(dataset) // batchsize
+			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+			sections = np.split(dataset, indices, axis=0)
+		else:
+			sections = [dataset]
+		# compute accuracy
+		for batch in sections:
+			ppl.append(compute_perplexity_batch(model, batch))
+	return reduce(lambda x, y: x + y, ppl) / len(ppl)
+
+def compute_minibatch_perplexity(model, buckets, batchsize=100):
+	ppl = []
+	for dataset in buckets:
+		batch = sample_batch_from_bucket(dataset, batchsize)
+		ppl.append(compute_perplexity_batch(model, batch))
+	return reduce(lambda x, y: x + y, ppl) / len(ppl)
 
 class QRNN(Chain):
 	def __init__(self, num_vocab, ndim_embedding):
@@ -176,12 +221,12 @@ class QRNN(Chain):
 
 	# we use "dense convolution"
 	# https://arxiv.org/abs/1608.06993
-	def __call__(self, X):
+	def __call__(self, X, test=False):
 		H0 = self.embed(X)
 		H0 = F.swapaxes(H0, 1, 2)
-		self.l1(H0)
+		self.l1(H0, test=test)
 		H1 = self.l1.get_all_hidden_states() + H0
-		self.l2(H1)
+		self.l2(H1, test=test)
 		H2 = self.l2.get_all_hidden_states() + H1
 		H2 = F.reshape(F.swapaxes(H2, 1, 2), (-1, self.ndim_embedding))
 		Y = self.l3(H2)
@@ -215,6 +260,7 @@ def main():
 
 	# setup an optimizer
 	optimizer = Eve(alpha=0.001, beta1=0.9)
+	# optimizer = optimizers.Adam(alpha=0.0005, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.gradclip))
 
@@ -234,8 +280,9 @@ def main():
 
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
-			if itr % 100 == 0:
+			if itr % 500 == 0:
 				print("\raccuracy: {} (train), {} (validation)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
+				print("\rppl: {} (train), {} (validation)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
 				save_model("rnn.model", model)
 
 if __name__ == "__main__":
