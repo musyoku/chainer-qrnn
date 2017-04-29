@@ -161,13 +161,13 @@ def compute_perplexity_batch(model, batch):
 	if args.gpu_device >= 0:
 		source.to_gpu()
 		target.to_gpu()
-	Y = F.softmax(model(source, test=True))
-	P = Y[target.data].data
-	xp = cuda.get_array_module(*P)
+	Y = F.softmax(model(source, test=True)).data
+	xp = cuda.get_array_module(*Y)
 	num_sections = batch.shape[0]
-	seq_batch = xp.split(P, num_sections)
+	seq_batch = xp.split(Y, num_sections)
 	target_batch = xp.split(target.data, num_sections)
 	for seq, target in zip(seq_batch, target_batch):
+		assert len(seq) == len(target)
 		log_likelihood = 0
 		num_tokens = 0
 		for t in xrange(len(seq)):
@@ -280,7 +280,7 @@ def main():
 
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
-			if itr % 500 == 0:
+			if itr % 2 == 0:
 				print("\raccuracy: {} (train), {} (validation)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				print("\rppl: {} (train), {} (validation)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
 				save_model("rnn.model", model)
