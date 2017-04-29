@@ -1,4 +1,6 @@
 # encoding: utf-8
+from __future__ import division
+from __future__ import print_function
 import numpy as np
 import chainer
 import chainer.links as L
@@ -6,6 +8,7 @@ import chainer.functions as F
 from chainer import Variable, Chain
 from qrnn import QRNN, QRNNEncoder, QRNNDecoder, QRNNGlobalAttentiveDecoder
 
+_buckets = [(5, 10), (10, 15), (20, 25), (40, 50)]
 
 class Encoder(Chain):
 	def __init__(self, num_vocab, ndim_embedding):
@@ -88,4 +91,4 @@ data = np.arange(0, prod, dtype=np.int32).reshape(shape) / prod
 data = Variable(data)
 enc = Encoder(num_vocab, ndim_embedding)
 y = enc(data)
-print y.data
+print(y.data)

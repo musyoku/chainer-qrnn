@@ -6,12 +6,27 @@ import argparse, sys, os, codecs, random
 import numpy as np
 import chainer
 import chainer.functions as F
-from chainer import training, Variable, Chain
+from chainer import training, Variable, Chain, serializers
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 import qrnn as L
 
 _bucket_sizes = [10, 20, 40, 60, 100, 120]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--batchsize", "-b", type=int, default=50, help="Number of examples in each mini-batch")
+parser.add_argument("--bproplen", "-l", type=int, default=35, help="Number of words in each mini-batch (= length of truncated BPTT)")
+parser.add_argument("--epoch", "-e", type=int, default=39, help="Number of sweeps over the dataset to train")
+parser.add_argument("--gpu_device", "-g", type=int, default=0, help="GPU ID (negative value indicates CPU)")
+parser.add_argument("--gradclip", "-c", type=float, default=5, help="Gradient norm threshold to clip")
+parser.add_argument("--out", "-o", default="result", help="Directory to output the result")
+parser.add_argument("--resume", "-r", default="", help="Resume the training from snapshot")
+parser.add_argument("--test", action="store_true", help="Use tiny datasets for quick tests")
+parser.set_defaults(test=False)
+parser.add_argument("--unit", "-u", type=int, default=650, help="Number of LSTM units in each layer")
+parser.add_argument("--model", "-m", default="model.npz", help="Model file name to serialize")
+parser.add_argument("--input-filename", "-i", default=None, help="Model file name to serialize")
+args = parser.parse_args()
 
 def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed=0):
 	assert(train_split_ratio + validation_split_ratio <= 1)
@@ -96,6 +111,32 @@ def make_source_target_pair(batch):
 	target = np.reshape(target, (-1,))
 	return Variable(source), Variable(target)
 
+def save_model(filename, chain):
+	if os.path.isfile(filename):
+		os.remove(filename)
+	serializers.save_hdf5(filename, chain)
+
+def compute_accuracy(model, buckets):
+	acc = []
+	batchsize = 50
+	for dataset in buckets:
+		# split into minibatch
+		if len(dataset) > batchsize:
+			num_sections = len(dataset) // batchsize
+			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+			sections = np.split(dataset, indices, axis=0)
+		else:
+			sections = [dataset]
+		# compute accuracy
+		for batch in sections:
+			source, target = make_source_target_pair(batch)
+			if args.gpu_device >= 0:
+				source.to_gpu()
+				target.to_gpu()
+			Y = model(source)
+			acc.append(float(F.accuracy(Y, target).data))
+	return reduce(lambda x, y: x + y, acc) / len(acc)
+
 class QRNN(Chain):
 	def __init__(self, num_vocab, ndim_embedding):
 		super(QRNN, self).__init__(
@@ -127,22 +168,7 @@ class QRNN(Chain):
 		return Y
 
 def main():
-	parser = argparse.ArgumentParser()
-	parser.add_argument("--batchsize", "-b", type=int, default=50, help="Number of examples in each mini-batch")
-	parser.add_argument("--bproplen", "-l", type=int, default=35, help="Number of words in each mini-batch (= length of truncated BPTT)")
-	parser.add_argument("--epoch", "-e", type=int, default=39, help="Number of sweeps over the dataset to train")
-	parser.add_argument("--gpu_device", "-g", type=int, default=0, help="GPU ID (negative value indicates CPU)")
-	parser.add_argument("--gradclip", "-c", type=float, default=5, help="Gradient norm threshold to clip")
-	parser.add_argument("--out", "-o", default="result", help="Directory to output the result")
-	parser.add_argument("--resume", "-r", default="", help="Resume the training from snapshot")
-	parser.add_argument("--test", action="store_true", help="Use tiny datasets for quick tests")
-	parser.set_defaults(test=False)
-	parser.add_argument("--unit", "-u", type=int, default=650, help="Number of LSTM units in each layer")
-	parser.add_argument("--model", "-m", default="model.npz", help="Model file name to serialize")
-	parser.add_argument("--input-filename", "-i", default=None, help="Model file name to serialize")
-	args = parser.parse_args()
-
-	ndim_embedding = 200
+	ndim_embedding = 512
 
 	# load textfile
 	train_dataset, validation_dataset, test_dataset, vocab = read_data(args.input_filename)
@@ -155,6 +181,9 @@ def main():
 	# split into buckets
 	train_buckets = make_batch_buckets(train_dataset)
 	for size, data in zip(_bucket_sizes, train_buckets):
+		print("{}	{}".format(size, len(data)))
+	validation_buckets = make_batch_buckets(validation_dataset)
+	for size, data in zip(_bucket_sizes, validation_buckets):
 		print("{}	{}".format(size, len(data)))
 
 	# init
@@ -171,7 +200,7 @@ def main():
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
 	for epoch in xrange(1, args.epoch + 1):
-		for itr in xrange(num_iteration):
+		for itr in xrange(1, num_iteration + 1):
 			for dataset in train_buckets:
 				batch = sample_batch_from_bucket(dataset, args.batchsize)
 				source, target = make_source_target_pair(batch)
@@ -181,7 +210,11 @@ def main():
 				Y = model(source)
 				loss = F.softmax_cross_entropy(Y, target)
 				optimizer.update(lossfun=lambda: loss)
-			print itr
+
+			print(itr, num_iteration)
+			if itr % 100 == 0:
+				save_model("rnn.model", model)
+				print(compute_accuracy(model, validation_buckets))
 
 if __name__ == "__main__":
 	main()

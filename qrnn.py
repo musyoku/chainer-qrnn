@@ -1,6 +1,10 @@
+from __future__ import division
+from __future__ import print_function
+from six.moves import xrange
 import numpy as np
 from chainer import cuda, Variable, function, link, functions, links
 from chainer.utils import type_check
+from chainer.links import EmbedID, Linear
 
 class Zoneout(function.Function):
 	def __init__(self, zoneout_ratio):
