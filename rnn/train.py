@@ -21,10 +21,10 @@ def print_bold(str):
 	print(stdout.BOLD + str + stdout.END)
 
 bucket_sizes = [10, 20, 40, 60, 80, 100, 120]
-ID_PAD = -1
-ID_UNK = 0
-ID_BOS = 1
-ID_EOS = 2
+ID_PAD = 0
+ID_UNK = 1
+ID_BOS = 2
+ID_EOS = 3
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--batchsize", "-b", type=int, default=50)
@@ -121,13 +121,13 @@ def make_source_target_pair(batch):
 	source = batch[:, :-1]
 	target = batch[:, 1:]
 	target = np.reshape(target, (-1,))
-	return Variable(source), Variable(target)
+	return source, target
 
 def compute_accuracy_batch(model, batch):
 	source, target = make_source_target_pair(batch)
-	if args.gpu_device >= 0:
-		source.to_gpu()
-		target.to_gpu()
+	if model.xp is cuda.cupy:
+		source = cuda.to_gpu(source)
+		target = cuda.to_gpu(target)
 	Y = model(source, test=True)
 	return float(F.accuracy(Y, target, ignore_label=ID_PAD).data)
 
@@ -157,26 +157,32 @@ def compute_minibatch_accuracy(model, buckets, batchsize=100):
 def compute_perplexity_batch(model, batch):
 	sum_log_likelihood = 0
 	source, target = make_source_target_pair(batch)
-	if args.gpu_device >= 0:
-		source.to_gpu()
-		target.to_gpu()
+	xp = model.xp
+	if xp is cuda.cupy:
+		source = cuda.to_gpu(source)
+		target = cuda.to_gpu(target)
 	Y = F.softmax(model(source, test=True)).data
-	xp = cuda.get_array_module(*Y)
-	num_sections = batch.shape[0]
-	seq_batch = xp.split(Y, num_sections)
-	target_batch = xp.split(target.data, num_sections)
-	for seq, target in zip(seq_batch, target_batch):
-		assert len(seq) == len(target)
-		log_likelihood = 0
-		num_tokens = 0
-		for t in xrange(len(seq)):
-			if target[t] == ID_PAD:
-				break
-			log_likelihood += math.log(seq[t, target[t]] + 1e-8)
-			num_tokens += 1
-		assert num_tokens > 0
-		sum_log_likelihood += log_likelihood / num_tokens
-	return math.exp(-sum_log_likelihood / num_sections)
+	P = Y[xp.arange(0, len(target)), target]
+	log_P = xp.log(P)
+	mask = (target != ID_PAD).astype(xp.float32)
+	log_P *= mask
+	mean_log_P = xp.mean(log_P)
+	return math.exp(-float(mean_log_P))
+	# num_sections = batch.shape[0]
+	# seq_batch = xp.split(Y, num_sections)
+	# target_batch = xp.split(target.data, num_sections)
+	# for seq, target in zip(seq_batch, target_batch):
+	# 	assert len(seq) == len(target)
+	# 	log_likelihood = 0
+	# 	num_tokens = 0
+	# 	for t in xrange(len(seq)):
+	# 		if target[t] == ID_PAD:
+	# 			break
+	# 		log_likelihood += math.log(seq[t, target[t]] + 1e-8)
+	# 		num_tokens += 1
+	# 	assert num_tokens > 0
+	# 	sum_log_likelihood += log_likelihood / num_tokens
+	# return math.exp(-sum_log_likelihood / num_sections)
 
 def compute_perplexity(model, buckets):
 	ppl = []
@@ -249,9 +255,9 @@ def main():
 			for dataset in train_buckets:
 				batch = sample_batch_from_bucket(dataset, args.batchsize)
 				source, target = make_source_target_pair(batch)
-				if args.gpu_device >= 0:
-					source.to_gpu()
-					target.to_gpu()
+				if model.xp is cuda.cupy:
+					source = cuda.to_gpu(source)
+					target = cuda.to_gpu(target)
 				Y = model(source)
 				loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 				optimizer.update(lossfun=lambda: loss)
