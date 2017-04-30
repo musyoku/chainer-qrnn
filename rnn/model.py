@@ -1,8 +1,34 @@
-import sys, os, json
+import sys, os, json, pickle
 import chainer.functions as F
 from chainer import Chain, serializers
 sys.path.append(os.path.split(os.getcwd())[0])
 import qrnn as L
+
+def save_vocab(dirname, vocab, vocab_inv):
+	vocab_filename = dirname + "/vocab.pickle"
+	inv_filename = dirname + "/inv.pickle"
+	
+	with open(vocab_filename, mode="wb") as f:
+		pickle.dump(vocab, f)
+	
+	with open(inv_filename, mode="wb") as f:
+		pickle.dump(vocab_inv, f)
+
+def load_vocab(dirname):
+	vocab = None
+	vocab_inv = None
+	vocab_filename = dirname + "/vocab.pickle"
+	inv_filename = dirname + "/inv.pickle"
+	
+	if os.path.isfile(vocab_filename):
+		with open(vocab_filename, mode="rb") as f:
+			vocab = pickle.load(f)
+	
+	if os.path.isfile(inv_filename):
+		with open(inv_filename, mode="rb") as f:
+			vocab_inv = pickle.load(f)
+
+	return vocab, vocab_inv
 
 def save_model(dirname, qrnn):
 	model_filename = dirname + "/model.hdf5"
@@ -18,7 +44,7 @@ def save_model(dirname, qrnn):
 	serializers.save_hdf5(model_filename, qrnn)
 
 	params = {
-		"num_vocab": qrnn.num_vocab,
+		"vocab_size": qrnn.vocab_size,
 		"ndim_embedding": qrnn.ndim_embedding,
 		"ndim_h": qrnn.ndim_h,
 		"pooling": qrnn.pooling,
@@ -40,7 +66,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = QRNN(params["num_vocab"], params["ndim_embedding"], params["ndim_h"], params["pooling"], params["zoneout"], params["wstd"])
+		qrnn = QRNN(params["vocab_size"], params["ndim_embedding"], params["ndim_h"], params["pooling"], params["zoneout"], params["wstd"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -51,14 +77,14 @@ def load_model(dirname):
 		return None
 
 class QRNN(Chain):
-	def __init__(self, num_vocab, ndim_embedding, ndim_h, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size, ndim_embedding, ndim_h, pooling="fo", zoneout=False, wstd=1):
 		super(QRNN, self).__init__(
-			embed=L.EmbedID(num_vocab, ndim_embedding, ignore_label=0),
+			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0),
 			l1=L.QRNN(ndim_embedding, ndim_h, kernel_size=4, pooling=pooling, zoneout=zoneout, wstd=wstd),
 			l2=L.QRNN(ndim_h, ndim_h, kernel_size=4, pooling=pooling, zoneout=zoneout, wstd=wstd),
-			l3=L.Linear(ndim_h, num_vocab),
+			l3=L.Linear(ndim_h, vocab_size),
 		)
-		self.num_vocab = num_vocab
+		self.vocab_size = vocab_size
 		self.ndim_embedding = ndim_embedding
 		self.ndim_h = ndim_h
 		self.pooling = pooling

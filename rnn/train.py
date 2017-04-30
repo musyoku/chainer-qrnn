@@ -10,7 +10,7 @@ from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
-from model import QRNN, load_model, save_model
+from model import QRNN, load_model, save_model, save_vocab
 
 class stdout:
 	BOLD = "\033[1m"
@@ -66,6 +66,10 @@ def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed
 			word_ids.append(ID_EOS)
 			dataset.append(word_ids)
 
+	vocab_inv = {}
+	for word, word_id in vocab.items():
+		vocab_inv[word_id] = word
+
 	random.seed(seed)
 	random.shuffle(dataset)
 
@@ -79,7 +83,7 @@ def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed
 	validation_dataset = train_validation_dataset[:validation_split]
 	train_dataset = train_validation_dataset[validation_split:]
 
-	return train_dataset, validation_dataset, test_dataset, vocab
+	return train_dataset, validation_dataset, test_dataset, vocab, vocab_inv
 
 # input:
 # [0, a, b, c, 1]
@@ -209,7 +213,8 @@ def compute_minibatch_perplexity(model, buckets, batchsize=100):
 
 def main():
 	# load textfile
-	train_dataset, validation_dataset, test_dataset, vocab = read_data(args.text_filename)
+	train_dataset, validation_dataset, test_dataset, vocab, vocab_inv = read_data(args.text_filename)
+	save_vocab(args.model_dir, vocab, vocab_inv)
 	vocab_size = len(vocab)
 	print_bold("data	#")
 	print("train	{}".format(len(train_dataset)))
