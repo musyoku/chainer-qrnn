@@ -8,6 +8,11 @@ def save_vocab(dirname, vocab, vocab_inv):
 	vocab_filename = dirname + "/vocab.pickle"
 	inv_filename = dirname + "/inv.pickle"
 	
+	try:
+		os.mkdir(dirname)
+	except:
+		pass
+
 	with open(vocab_filename, mode="wb") as f:
 		pickle.dump(vocab, f)
 	
