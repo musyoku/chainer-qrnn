@@ -6,17 +6,25 @@ import argparse, sys, os, codecs, random, math
 import numpy as np
 import chainer
 import chainer.functions as F
-from chainer import training, Variable, Chain, serializers, optimizers, cuda
+from chainer import training, Variable, serializers, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
-import qrnn as L
+from model import QRNN
 
-_bucket_sizes = [10, 20, 40, 60, 100, 120]
-ID_PAD = 0
-ID_UNK = 1
-ID_BOS = 2
-ID_EOS = 3
+class stdout:
+	BOLD = "\033[1m"
+	END = "\033[0m"
+	CLEAR = "\033[2K"
+
+def print_bold(str):
+	print(stdout.BOLD + str + stdout.END)
+
+bucket_sizes = [10, 20, 40, 60, 80, 100, 120]
+ID_PAD = -1
+ID_UNK = 0
+ID_BOS = 1
+ID_EOS = 2
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--batchsize", "-b", type=int, default=50)
@@ -30,6 +38,7 @@ parser.add_argument("--wstd", "-w", type=float, default=1)
 parser.add_argument("--text-filename", "-f", default=None)
 parser.add_argument("--model-filename", "-m", type=str, default=None)
 parser.add_argument("--zoneout", default=False, action="store_true")
+parser.add_argument("--eve", default=False, action="store_true")
 args = parser.parse_args()
 
 def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed=0):
@@ -77,17 +86,17 @@ def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed
 # output:
 # [[0, a, b, c,  1]
 #  [0, d, e, 1, -1]]
-def make_batch_buckets(dataset):
+def make_buckets(dataset):
 	max_length = 0
 	for word_ids in dataset:
 		if len(word_ids) > max_length:
 			max_length = len(word_ids)
-	_bucket_sizes.append(max_length)
-	buckets_list = [[] for _ in xrange(len(_bucket_sizes))]
+	bucket_sizes.append(max_length)
+	buckets_list = [[] for _ in xrange(len(bucket_sizes))]
 	for word_ids in dataset:
 		length = len(word_ids)
 		bucket_index = 0
-		for size in _bucket_sizes:
+		for size in bucket_sizes:
 			if length <= size:
 				if size - length > 0:
 					for _ in xrange(size - length):
@@ -174,7 +183,7 @@ def compute_perplexity_batch(model, batch):
 		for t in xrange(len(seq)):
 			if target[t] == ID_PAD:
 				break
-			log_likelihood += math.log(seq[t, target[t]])
+			log_likelihood += math.log(seq[t, target[t]] + 1e-8)
 			num_tokens += 1
 		assert num_tokens > 0
 		sum_log_likelihood += log_likelihood / num_tokens
@@ -203,50 +212,28 @@ def compute_minibatch_perplexity(model, buckets, batchsize=100):
 		ppl.append(compute_perplexity_batch(model, batch))
 	return reduce(lambda x, y: x + y, ppl) / len(ppl)
 
-class QRNN(Chain):
-	def __init__(self, num_vocab, ndim_embedding, ndim_h, pooling="fo", zoneout=False, wstd=1):
-		super(QRNN, self).__init__(
-			embed=L.EmbedID(num_vocab, ndim_embedding, ignore_label=0),
-			l1=L.QRNN(ndim_embedding, ndim_h, kernel_size=4, pooling=pooling, zoneout=zoneout, wstd=wstd),
-			l2=L.QRNN(ndim_h, ndim_h, kernel_size=4, pooling=pooling, zoneout=zoneout, wstd=wstd),
-			l3=L.Linear(ndim_h, num_vocab),
-		)
-		self.ndim_embedding = ndim_embedding
-
-	def reset_state(self):
-		self.l1.reset_state()
-		self.l2.reset_state()
-
-	# we use "dense convolution"
-	# https://arxiv.org/abs/1608.06993
-	def __call__(self, X, test=False):
-		batchsize = X.shape[0]
-		seq_length = X.shape[1]
-		H0 = self.embed(X)
-		H0 = F.swapaxes(H0, 1, 2)
-		self.l1(H0, test=test)
-		H1 = self.l1.get_all_hidden_states()
-		self.l2(H1, test=test)
-		H2 = self.l2.get_all_hidden_states() + H1
-		H2 = F.reshape(F.swapaxes(H2, 1, 2), (batchsize * seq_length, -1))
-		Y = self.l3(H2)
-		return Y
-
 def main():
 	# load textfile
 	train_dataset, validation_dataset, test_dataset, vocab = read_data(args.text_filename)
 	vocab_size = len(vocab)
-	print("#train =", len(train_dataset))
-	print("#validation =", len(validation_dataset))
-	print("#test =", len(test_dataset))
-	print("#vocab =", vocab_size)
+	print_bold("data	#")
+	print("train	{}".format(len(train_dataset)))
+	print("dev	{}".format(len(validation_dataset)))
+	print("test	{}".format(len(test_dataset)))
+	print("vocab	{}".format(vocab_size))
 
 	# split into buckets
-	train_buckets = make_batch_buckets(train_dataset)
-	for size, data in zip(_bucket_sizes, train_buckets):
+	train_buckets = make_buckets(train_dataset)
+	print_bold("buckets	#data	(train)")
+	for size, data in zip(bucket_sizes, train_buckets):
 		print("{}	{}".format(size, len(data)))
-	validation_buckets = make_batch_buckets(validation_dataset)
-	for size, data in zip(_bucket_sizes, validation_buckets):
+	print_bold("buckets	#data	(dev)")
+	validation_buckets = make_buckets(validation_dataset)
+	for size, data in zip(bucket_sizes, validation_buckets):
+		print("{}	{}".format(size, len(data)))
+	print_bold("buckets	#data	(test)")
+	test_buckets = make_buckets(test_dataset)
+	for size, data in zip(bucket_sizes, test_buckets):
 		print("{}	{}".format(size, len(data)))
 
 	# init
@@ -257,14 +244,17 @@ def main():
 		model.to_gpu()
 
 	# setup an optimizer
-	optimizer = Eve(alpha=0.001, beta1=0.9)
-	# optimizer = optimizers.Adam(alpha=0.0005, beta1=0.9)
+	if args.eve:
+		optimizer = Eve(alpha=0.001, beta1=0.9)
+	else:
+		optimizer = optimizers.Adam(alpha=0.0005, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
 	for epoch in xrange(1, args.epoch + 1):
+		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
 			for dataset in train_buckets:
 				batch = sample_batch_from_bucket(dataset, args.batchsize)
@@ -273,14 +263,14 @@ def main():
 					source.to_gpu()
 					target.to_gpu()
 				Y = model(source)
-				loss = F.softmax_cross_entropy(Y, target)
+				loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 				optimizer.update(lossfun=lambda: loss)
 
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
 			if itr % 500 == 0:
-				print("\raccuracy: {} (train), {} (validation)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
-				print("\rppl: {} (train), {} (validation)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
+				print("\raccuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
+				print("\rppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
 				save_model(args.model_filename, model)
 
 if __name__ == "__main__":
