@@ -137,7 +137,7 @@ class QRNN(link.Chain):
 	def set_state(self, ct, ht, H):
 		self.ct = ct	# last cell state
 		self.ht = ht	# last hidden state
-		self.H = H	# all hidden states
+		self.H = H		# all hidden states
 
 	def get_last_hidden_state(self):
 		return self.ht

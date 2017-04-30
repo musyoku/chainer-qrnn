@@ -168,15 +168,17 @@ def compute_perplexity_batch(model, batch):
 		target = cuda.to_gpu(target)
 	model.reset_state()
 	Y = F.softmax(model(source, test=True)).data
-	P = Y[xp.arange(0, len(target)), target] + 1e-8
+	P = Y[xp.arange(0, len(target)), target] + 1e-32
 	log_P = xp.log(P)
-	mask = (target != ID_PAD).astype(xp.float32)
+	mask = target != ID_PAD
 	log_P *= mask
-	mean_log_P = xp.mean(log_P)
+	num_tokens = xp.count_nonzero(mask)
+	mean_log_P = xp.sum(log_P) / num_tokens
 	return math.exp(-float(mean_log_P))
-	# num_sections = batch.shape[0]
-	# seq_batch = xp.split(Y, num_sections)
-	# target_batch = xp.split(target.data, num_sections)
+
+	# batchsize = batch.shape[0]
+	# seq_batch = xp.split(Y, batchsize)
+	# target_batch = xp.split(target, batchsize)
 	# for seq, target in zip(seq_batch, target_batch):
 	# 	assert len(seq) == len(target)
 	# 	log_likelihood = 0
@@ -184,11 +186,11 @@ def compute_perplexity_batch(model, batch):
 	# 	for t in xrange(len(seq)):
 	# 		if target[t] == ID_PAD:
 	# 			break
-	# 		log_likelihood += math.log(seq[t, target[t]] + 1e-8)
+	# 		log_likelihood += math.log(seq[t, target[t]] + 1e-32)
 	# 		num_tokens += 1
 	# 	assert num_tokens > 0
 	# 	sum_log_likelihood += log_likelihood / num_tokens
-	# return math.exp(-sum_log_likelihood / num_sections)
+	# return math.exp(-sum_log_likelihood / batchsize)
 
 def compute_perplexity(model, buckets):
 	ppl = []

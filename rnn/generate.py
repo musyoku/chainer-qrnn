@@ -11,7 +11,7 @@ from train import ID_BOS, ID_EOS
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-parser.add_argument("--num-generate", "-n", type=int, default=10)
+parser.add_argument("--num-generate", "-n", type=int, default=50)
 parser.add_argument("--max-sentence-length", "-max", type=int, default=50)
 parser.add_argument("--model-dir", "-m", type=str, default="model")
 args = parser.parse_args()
