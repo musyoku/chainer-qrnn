@@ -38,7 +38,6 @@ class QRNN(link.Chain):
 		self.reset_state()
 
 	def __call__(self, X, test=False):
-		assert isinstance(X, Variable)
 		self._test = test
 		# remove right paddings
 		# e.g.

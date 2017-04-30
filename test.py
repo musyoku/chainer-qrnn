@@ -8,8 +8,6 @@ import chainer.functions as F
 from chainer import Variable, Chain
 from qrnn import QRNN, QRNNEncoder, QRNNDecoder, QRNNGlobalAttentiveDecoder
 
-_buckets = [(5, 10), (10, 15), (20, 25), (40, 50)]
-
 class Encoder(Chain):
 	def __init__(self, num_vocab, ndim_embedding):
 		super(Encoder, self).__init__(
@@ -59,36 +57,45 @@ class EncoderDecoder(Chain):
 		y = self.l3(h2)
 		return y
 
-
-shape = (2, 3, 10)
+shape = (2, 3, 5)
 prod = shape[0] * shape[1] * shape[2]
 data = np.arange(0, prod, dtype=np.float32).reshape(shape) / prod
-data = Variable(data)
 
-qrnn = QRNN(shape[1], 4, kernel_size=3, pooling="f", zoneout=True)
-y = qrnn(data)
-
-qrnn = QRNN(shape[1], 4, kernel_size=3, pooling="fo", zoneout=True)
-y = qrnn(data)
-
-qrnn = QRNN(shape[1], 4, kernel_size=3, pooling="ifo", zoneout=True)
-y = qrnn(data)
-
-dec = QRNNDecoder(shape[1], 4, kernel_size=3, pooling="fo", zoneout=True)
-h = qrnn.get_last_hidden_state()
-y = dec(data, h)
-
-dec = QRNNGlobalAttentiveDecoder(shape[1], 4, kernel_size=3, zoneout=True)
-h = qrnn.get_last_hidden_state()
-H = qrnn.get_all_hidden_states()
-y = dec(data, h, H)
-
-num_vocab = 10
-ndim_embedding = 200
-shape = (16, 100)
-prod = shape[0] * shape[1]
-data = np.arange(0, prod, dtype=np.int32).reshape(shape) / prod
-data = Variable(data)
-enc = Encoder(num_vocab, ndim_embedding)
-y = enc(data)
+data[:, :, 3] = "inf"
+qrnn1 = QRNN(shape[1], 4, kernel_size=4, pooling="fo", zoneout=False)
+qrnn2 = QRNN(4, 4, kernel_size=4, pooling="fo", zoneout=False)
+dense = L.Linear(4, 2)
+y = qrnn1(data)
 print(y.data)
+y = qrnn2(y)
+print(y.data)
+y = F.reshape(F.swapaxes(y, 1, 2), (2 * 5, -1))
+print(y.data)
+y = dense(y)
+print(y.data)
+
+
+# qrnn = QRNN(shape[1], 4, kernel_size=3, pooling="fo", zoneout=True)
+# y = qrnn(data)
+
+# qrnn = QRNN(shape[1], 4, kernel_size=3, pooling="ifo", zoneout=True)
+# y = qrnn(data)
+
+# dec = QRNNDecoder(shape[1], 4, kernel_size=3, pooling="fo", zoneout=True)
+# h = qrnn.get_last_hidden_state()
+# y = dec(data, h)
+
+# dec = QRNNGlobalAttentiveDecoder(shape[1], 4, kernel_size=3, zoneout=True)
+# h = qrnn.get_last_hidden_state()
+# H = qrnn.get_all_hidden_states()
+# y = dec(data, h, H)
+
+# num_vocab = 10
+# ndim_embedding = 200
+# shape = (16, 100)
+# prod = shape[0] * shape[1]
+# data = np.arange(0, prod, dtype=np.int32).reshape(shape) / prod
+# data = Variable(data)
+# enc = Encoder(num_vocab, ndim_embedding)
+# y = enc(data)
+# print(y.data)

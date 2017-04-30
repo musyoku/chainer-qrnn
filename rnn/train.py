@@ -31,6 +31,7 @@ parser.add_argument("--batchsize", "-b", type=int, default=50)
 parser.add_argument("--epoch", "-e", type=int, default=30)
 parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
+parser.add_argument("--weight-decay", "-wd", type=float, default=1-2e-4) 
 parser.add_argument("--ndim-h", "-nh", type=int, default=256)
 parser.add_argument("--ndim-embedding", "-ne", type=int, default=128)
 parser.add_argument("--interval", type=int, default=100)
@@ -264,6 +265,7 @@ def main():
 		optimizer = optimizers.Adam(alpha=0.001, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
+	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
