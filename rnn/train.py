@@ -33,7 +33,7 @@ parser.add_argument("--gpu-device", "-g", type=int, default=0)
 parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 parser.add_argument("--ndim-h", "-nh", type=int, default=256)
 parser.add_argument("--ndim-embedding", "-ne", type=int, default=128)
-parser.add_argument("--interval", type=int, default=500)
+parser.add_argument("--interval", type=int, default=100)
 parser.add_argument("--pooling", "-p", type=str, default="fo")
 parser.add_argument("--wstd", "-w", type=float, default=1)
 parser.add_argument("--text-filename", "-f", default=None)
@@ -238,6 +238,15 @@ def main():
 	for size, data in zip(bucket_sizes, test_buckets):
 		print("{}	{}".format(size, len(data)))
 
+	# to maintain equilibrium
+	min_num_data = 0
+	for data in train_buckets:
+		if min_num_data == 0 or len(data) < min_num_data:
+			min_num_data = len(data)
+	repeats = []
+	for data in train_buckets:
+		repeats.append(len(data) // min_num_data)
+
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
@@ -259,19 +268,21 @@ def main():
 	for epoch in xrange(1, args.epoch + 1):
 		print("\rEpoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
-			for dataset in train_buckets:
-				batch = sample_batch_from_bucket(dataset, args.batchsize)
-				source, target = make_source_target_pair(batch)
-				if model.xp is cuda.cupy:
-					source = cuda.to_gpu(source)
-					target = cuda.to_gpu(target)
-				model.reset_state()
-				Y = model(source)
-				loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
-				optimizer.update(lossfun=lambda: loss)
+			for repeat, dataset in zip(repeats, train_buckets):
+				for r in xrange(repeat):
+					batch = sample_batch_from_bucket(dataset, args.batchsize)
+					source, target = make_source_target_pair(batch)
+					if model.xp is cuda.cupy:
+						source = cuda.to_gpu(source)
+						target = cuda.to_gpu(target)
+					model.reset_state()
+					Y = model(source)
+					loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
+					optimizer.update(lossfun=lambda: loss)
 
-			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
-			sys.stdout.flush()
+				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
+				sys.stdout.flush()
+
 			if itr % args.interval == 0:
 				print("\raccuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				print("\rppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
