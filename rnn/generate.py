@@ -43,5 +43,22 @@ def main():
 			sentence.append(word)
 		print(" ".join(sentence))
 
+	# for n in xrange(args.num_generate):
+	# 	word_ids = np.arange(0, vocab_size, dtype=np.int32)
+	# 	token = ID_BOS
+	# 	x = np.asarray([[token]]).astype(np.int32)
+	# 	while token != ID_EOS and x.shape[1] < args.max_sentence_length:
+	# 		model.reset_state()
+	# 		u = model(x, test=True)
+	# 		p = F.softmax(u).data[-1]
+	# 		token = np.random.choice(word_ids, size=1, p=p)
+	# 		x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
+
+	# 	sentence = []
+	# 	for token in x[0]:
+	# 		word = vocab_inv[token]
+	# 		sentence.append(word)
+	# 	print(" ".join(sentence))
+
 if __name__ == "__main__":
 	main()

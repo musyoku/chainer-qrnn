@@ -20,7 +20,7 @@ class stdout:
 def print_bold(str):
 	print(stdout.BOLD + str + stdout.END)
 
-bucket_sizes = [10, 20, 40, 60, 80, 100, 120]
+bucket_sizes = [10, 20, 40, 100, 200]
 ID_PAD = 0
 ID_UNK = 1
 ID_BOS = 2
@@ -250,14 +250,14 @@ def main():
 	if args.eve:
 		optimizer = Eve(alpha=0.001, beta1=0.9)
 	else:
-		optimizer = optimizers.Adam(alpha=0.0005, beta1=0.9)
+		optimizer = optimizers.Adam(alpha=0.001, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
 	for epoch in xrange(1, args.epoch + 1):
-		print(stdout.CLEAR + "Epoch", epoch)
+		print("\rEpoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
 			for dataset in train_buckets:
 				batch = sample_batch_from_bucket(dataset, args.batchsize)
