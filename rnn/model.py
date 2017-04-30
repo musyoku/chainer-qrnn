@@ -34,7 +34,7 @@ def load_model(dirname):
 
 	if os.path.isfile(param_filename):
 		print("loading {} ...".format(param_filename))
-		with open(sequence_filename, "r") as f:
+		with open(param_filename, "r") as f:
 			try:
 				params = json.load(f)
 			except Exception as e:
