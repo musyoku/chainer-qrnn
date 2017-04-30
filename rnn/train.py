@@ -10,7 +10,7 @@ from chainer import training, Variable, serializers, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
-from model import QRNN
+from model import QRNN, load_model, save_model
 
 class stdout:
 	BOLD = "\033[1m"
@@ -36,7 +36,7 @@ parser.add_argument("--ndim-embedding", "-ne", type=int, default=128)
 parser.add_argument("--pooling", "-p", type=str, default="fo")
 parser.add_argument("--wstd", "-w", type=float, default=1)
 parser.add_argument("--text-filename", "-f", default=None)
-parser.add_argument("--model-filename", "-m", type=str, default=None)
+parser.add_argument("--model-dir", "-m", type=str, default="model")
 parser.add_argument("--zoneout", default=False, action="store_true")
 parser.add_argument("--eve", default=False, action="store_true")
 args = parser.parse_args()
@@ -121,18 +121,6 @@ def make_source_target_pair(batch):
 	target = batch[:, 1:]
 	target = np.reshape(target, (-1,))
 	return Variable(source), Variable(target)
-
-def save_model(filename, chain):
-	if os.path.isfile(filename):
-		os.remove(filename)
-	serializers.save_hdf5(filename, chain)
-
-def load_model(filename, chain):
-	if os.path.isfile(filename):
-		print("loading {} ...".format(filename))
-		serializers.load_hdf5(filename, chain)
-	else:
-		pass
 
 def compute_accuracy_batch(model, batch):
 	source, target = make_source_target_pair(batch)
@@ -237,8 +225,9 @@ def main():
 		print("{}	{}".format(size, len(data)))
 
 	# init
-	model = QRNN(vocab_size, args.ndim_embedding, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
-	load_model(args.model_filename, model)
+	model = load_model(args.model_dir)
+	if model is None:
+		model = QRNN(vocab_size, args.ndim_embedding, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
