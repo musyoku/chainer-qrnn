@@ -168,7 +168,7 @@ def compute_perplexity_batch(model, batch):
 		target = cuda.to_gpu(target)
 	model.reset_state()
 	Y = F.softmax(model(source, test=True)).data
-	P = Y[xp.arange(0, len(target)), target]
+	P = Y[xp.arange(0, len(target)), target] + 1e-8
 	log_P = xp.log(P)
 	mask = (target != ID_PAD).astype(xp.float32)
 	log_P *= mask
