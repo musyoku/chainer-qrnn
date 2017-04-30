@@ -132,6 +132,7 @@ def compute_accuracy_batch(model, batch):
 	if model.xp is cuda.cupy:
 		source = cuda.to_gpu(source)
 		target = cuda.to_gpu(target)
+	model.reset_state()
 	Y = model(source, test=True)
 	return float(F.accuracy(Y, target, ignore_label=ID_PAD).data)
 
@@ -165,6 +166,7 @@ def compute_perplexity_batch(model, batch):
 	if xp is cuda.cupy:
 		source = cuda.to_gpu(source)
 		target = cuda.to_gpu(target)
+	model.reset_state()
 	Y = F.softmax(model(source, test=True)).data
 	P = Y[xp.arange(0, len(target)), target]
 	log_P = xp.log(P)
@@ -255,7 +257,7 @@ def main():
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
 	for epoch in xrange(1, args.epoch + 1):
-		print("Epoch", epoch)
+		print(stdout.CLEAR + "Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
 			for dataset in train_buckets:
 				batch = sample_batch_from_bucket(dataset, args.batchsize)
@@ -263,6 +265,7 @@ def main():
 				if model.xp is cuda.cupy:
 					source = cuda.to_gpu(source)
 					target = cuda.to_gpu(target)
+				model.reset_state()
 				Y = model(source)
 				loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 				optimizer.update(lossfun=lambda: loss)

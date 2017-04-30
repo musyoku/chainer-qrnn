@@ -53,6 +53,13 @@ class QRNN(link.Chain):
 		WX = self.W(X)[:, :, :-pad]
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1))
 
+	def forward_one_step(self, X, test=False):
+		assert isinstance(X, Variable)
+		self._test = test
+		pad = self._kernel_size - 1
+		WX = self.W(X)[:, :, -pad-1:-pad]
+		return self.pool(functions.split_axis(WX, self.num_split, axis=1))
+
 	def zoneout(self, U):
 		if self._zoneout and self._test == False:
 			return 1 - zoneout(functions.sigmoid(-U), self._zoneout_ratio)
@@ -68,7 +75,7 @@ class QRNN(link.Chain):
 			for t in xrange(Z.shape[2]):
 				zt = Z[:, :, t]
 				ft = F[:, :, t]
-				if t == 0:
+				if self.H is None:
 					self.ht = (1 - ft) * zt
 					self.H = functions.expand_dims(self.ht, 2)
 				else:
@@ -87,12 +94,12 @@ class QRNN(link.Chain):
 				zt = Z[:, :, t]
 				ft = F[:, :, t]
 				ot = O[:, :, t]
-				if t == 0:
+				if self.ct is None:
 					self.ct = (1 - ft) * zt
 				else:
 					self.ct = ft * self.ct + (1 - ft) * zt
 				self.ht = ot * self.ct
-				if t == 0:
+				if self.H is None:
 					self.H = functions.expand_dims(self.ht, 2)
 				else:
 					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
@@ -111,12 +118,12 @@ class QRNN(link.Chain):
 				ft = F[:, :, t]
 				ot = O[:, :, t]
 				it = I[:, :, t]
-				if t == 0:
+				if self.ct is None:
 					self.ct = (1 - ft) * zt
 				else:
 					self.ct = ft * self.ct + it * zt
 				self.ht = ot * self.ct
-				if t == 0:
+				if self.H is None:
 					self.H = functions.expand_dims(self.ht, 2)
 				else:
 					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
