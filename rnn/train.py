@@ -6,7 +6,7 @@ import argparse, sys, os, codecs, random, math
 import numpy as np
 import chainer
 import chainer.functions as F
-from chainer import training, Variable, serializers, optimizers, cuda
+from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
@@ -33,6 +33,7 @@ parser.add_argument("--gpu-device", "-g", type=int, default=0)
 parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 parser.add_argument("--ndim-h", "-nh", type=int, default=256)
 parser.add_argument("--ndim-embedding", "-ne", type=int, default=128)
+parser.add_argument("--interval", type=int, default=500)
 parser.add_argument("--pooling", "-p", type=str, default="fo")
 parser.add_argument("--wstd", "-w", type=float, default=1)
 parser.add_argument("--text-filename", "-f", default=None)
@@ -257,7 +258,7 @@ def main():
 
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
-			if itr % 500 == 0:
+			if itr % args.interval == 0:
 				print("\raccuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				print("\rppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
 				save_model(args.model_dir, model)

@@ -1,6 +1,6 @@
 import sys, os, json
 import chainer.functions as F
-from chainer import Chain
+from chainer import Chain, serializers
 sys.path.append(os.path.split(os.getcwd())[0])
 import qrnn as L
 
