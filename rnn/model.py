@@ -8,6 +8,11 @@ def save_model(dirname, qrnn):
 	model_filename = dirname + "/model.hdf5"
 	param_filename = dirname + "/params.json"
 
+	try:
+		os.mkdir(dirname)
+	except:
+		pass
+
 	if os.path.isfile(model_filename):
 		os.remove(model_filename)
 	serializers.save_hdf5(model_filename, qrnn)

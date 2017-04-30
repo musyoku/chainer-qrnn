@@ -260,7 +260,7 @@ def main():
 			if itr % 500 == 0:
 				print("\raccuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets), compute_accuracy(model, validation_buckets)))
 				print("\rppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets), compute_perplexity(model, validation_buckets)))
-				save_model(args.model_filename, model)
+				save_model(args.model_dir, model)
 
 if __name__ == "__main__":
 	main()
