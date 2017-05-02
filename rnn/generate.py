@@ -19,7 +19,7 @@ def main(args):
 
 	vocab_size = model.vocab_size
 
-	np.random.seed(0)
+	np.random.seed(0)	# debug
 	for n in xrange(args.num_generate):
 		word_ids = np.arange(0, vocab_size, dtype=np.int32)
 		token = ID_BOS
@@ -37,7 +37,7 @@ def main(args):
 			sentence.append(word)
 		print(" ".join(sentence))
 
-	np.random.seed(0)
+	np.random.seed(0)	# debug
 	for n in xrange(args.num_generate):
 		word_ids = np.arange(0, vocab_size, dtype=np.int32)
 		token = ID_BOS

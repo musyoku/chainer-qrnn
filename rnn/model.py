@@ -128,12 +128,15 @@ class QRNN(Chain):
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_rnn_one_layer(0, enmbedding, test=test)
-		in_data = []
-		in_data.append(out_data)
+		in_data = [out_data]
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_rnn_one_layer(layer_index, in_data[-1], test=test)
-			if layer_index != self.num_layers - 1:
-				in_data.append(in_data[-1] + out_data)
+			out_data = self._forward_rnn_one_layer(layer_index, sum(in_data), test=test)	# dense conv
+			in_data.append(out_data)
+
+		out_data = sum(in_data)	# dense conv
+
+		if test:
+			out_data.unchain_backward()
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
 		Y = self.dense(out_data)
@@ -166,17 +169,20 @@ class QRNN(Chain):
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_rnn_one_layer_one_step(0, enmbedding, test=test)
-		in_data = []
-		in_data.append(out_data)
+		in_data = [out_data]
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_rnn_one_layer_one_step(layer_index, in_data[-1], test=test)
-			if layer_index != self.num_layers - 1:
-				in_data.append(in_data[-1] + out_data)
+			out_data = self._forward_rnn_one_layer_one_step(layer_index, sum(in_data), test=test)
+			in_data.append(out_data)
 
+		out_data = sum(in_data)	# dense conv
+
+		if test:
+			out_data.unchain_backward()
+			
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
 		Y = self.dense(out_data)
 
 		if test:
 			Y.unchain_backward()
-			
+
 		return Y

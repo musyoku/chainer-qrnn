@@ -50,6 +50,10 @@ class QRNN(link.Chain):
 		#         |< t3 >|
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, :-pad]
+
+		if test:
+			WX.unchain_backward()
+			
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1))
 
 	def forward_one_step(self, X, test=False):
@@ -80,6 +84,8 @@ class QRNN(link.Chain):
 				else:
 					self.ht = ft * self.ht + (1 - ft) * zt
 					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+				if self._test:
+					self.H.unchain_backward()
 			return self.H
 
 		# fo-pooling
@@ -102,6 +108,8 @@ class QRNN(link.Chain):
 					self.H = functions.expand_dims(self.ht, 2)
 				else:
 					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+				if self._test:
+					self.H.unchain_backward()
 			return self.H
 
 		# ifo-pooling
@@ -126,6 +134,8 @@ class QRNN(link.Chain):
 					self.H = functions.expand_dims(self.ht, 2)
 				else:
 					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+				if self._test:
+					self.H.unchain_backward()
 			return self.H
 
 		raise Exception()
@@ -177,6 +187,11 @@ class QRNNDecoder(QRNN):
 		# 		 [	12	12	12]
 		# 		 [	13	13	13]
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
+
+		if test:
+			WX.unchain_backward()
+			Vh.unchain_backward()
+
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):

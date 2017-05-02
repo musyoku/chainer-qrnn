@@ -6,4 +6,6 @@ todo:
 - [x] ifo-pooling
 - [x] zoneout
 - [x] encoder-decoder
+- [ ] seq2seq
+- [ ] seq2seq with attention
 - [ ] experiments
