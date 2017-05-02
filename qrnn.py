@@ -37,7 +37,7 @@ class QRNN(link.Chain):
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
 
-	def __call__(self, X, test=False):
+	def __call__(self, X, skip_mask=None, test=False):
 		self._test = test
 		# remove right paddings
 		# e.g.
@@ -48,13 +48,19 @@ class QRNN(link.Chain):
 		# |< t1 >|
 		#     |< t2 >|
 		#         |< t3 >|
+		if skip_mask is not None:
+			assert skip_mask.ndim == 2
+			assert skip_mask.shape[0] == X.shape[0]
+			assert skip_mask.shape[1] == X.shape[2]
+			X *= skip_mask[:, None, :]
+
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, :-pad]
 
 		if test:
 			WX.unchain_backward()
-			
-		return self.pool(functions.split_axis(WX, self.num_split, axis=1))
+
+		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
 	def forward_one_step(self, X, test=False):
 		assert isinstance(X, Variable)
@@ -68,25 +74,15 @@ class QRNN(link.Chain):
 			return 1 - zoneout(functions.sigmoid(-U), self._zoneout_ratio)
 		return functions.sigmoid(U)
 
-	def pool(self, WX):
+	def pool(self, WX, skip_mask=None):
+		Z, F, O, I = None, None, None, None
+
 		# f-pooling
 		if len(self._pooling) == 1:
 			assert len(WX) == 2
 			Z, F = WX
 			Z = functions.tanh(Z)
 			F = self.zoneout(F)
-			for t in xrange(Z.shape[2]):
-				zt = Z[:, :, t]
-				ft = F[:, :, t]
-				if self.H is None:
-					self.ht = (1 - ft) * zt
-					self.H = functions.expand_dims(self.ht, 2)
-				else:
-					self.ht = ft * self.ht + (1 - ft) * zt
-					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
-				if self._test:
-					self.H.unchain_backward()
-			return self.H
 
 		# fo-pooling
 		if len(self._pooling) == 2:
@@ -95,22 +91,6 @@ class QRNN(link.Chain):
 			Z = functions.tanh(Z)
 			F = self.zoneout(F)
 			O = functions.sigmoid(O)
-			for t in xrange(Z.shape[2]):
-				zt = Z[:, :, t]
-				ft = F[:, :, t]
-				ot = O[:, :, t]
-				if self.ct is None:
-					self.ct = (1 - ft) * zt
-				else:
-					self.ct = ft * self.ct + (1 - ft) * zt
-				self.ht = ot * self.ct
-				if self.H is None:
-					self.H = functions.expand_dims(self.ht, 2)
-				else:
-					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
-				if self._test:
-					self.H.unchain_backward()
-			return self.H
 
 		# ifo-pooling
 		if len(self._pooling) == 3:
@@ -120,25 +100,105 @@ class QRNN(link.Chain):
 			F = self.zoneout(F)
 			O = functions.sigmoid(O)
 			I = functions.sigmoid(I)
-			for t in xrange(Z.shape[2]):
-				zt = Z[:, :, t]
-				ft = F[:, :, t]
-				ot = O[:, :, t]
-				it = I[:, :, t]
-				if self.ct is None:
-					self.ct = (1 - ft) * zt
-				else:
-					self.ct = ft * self.ct + it * zt
-				self.ht = ot * self.ct
-				if self.H is None:
-					self.H = functions.expand_dims(self.ht, 2)
-				else:
-					self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
-				if self._test:
-					self.H.unchain_backward()
-			return self.H
 
-		raise Exception()
+		assert Z is not None
+		assert F is not None
+
+		T = Z.shape[2]
+		for t in xrange(T):
+			zt = Z[:, :, t]
+			ft = F[:, :, t]
+			ot = 1 if O is None else O[:, :, t]
+			it = 1 - ft if I is None else I[:, :, t]
+			xt = 1 if skip_mask is None else skip_mask[:, t, None]	# will be used for seq2seq to skip PAD
+
+			if self.ct is None:
+				self.ct = (1 - ft) * zt * xt
+			else:
+				self.ct = ft * self.ct + it * zt * xt
+			self.ht = self.ct if O is None else ot * self.ct
+
+			if self.H is None:
+				self.H = functions.expand_dims(self.ht, 2)
+			else:
+				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+
+			if self._test:
+				self.H.unchain_backward()
+
+		return self.H
+
+	# def _pool(self, WX):
+	# 	# f-pooling
+	# 	if len(self._pooling) == 1:
+	# 		assert len(WX) == 2
+	# 		Z, F = WX
+	# 		Z = functions.tanh(Z)
+	# 		F = self.zoneout(F)
+	# 		for t in xrange(Z.shape[2]):
+	# 			zt = Z[:, :, t]
+	# 			ft = F[:, :, t]
+	# 			if self.H is None:
+	# 				self.ht = (1 - ft) * zt
+	# 				self.H = functions.expand_dims(self.ht, 2)
+	# 			else:
+	# 				self.ht = ft * self.ht + (1 - ft) * zt
+	# 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+	# 			if self._test:
+	# 				self.H.unchain_backward()
+	# 		return self.H
+
+	# 	# fo-pooling
+	# 	if len(self._pooling) == 2:
+	# 		assert len(WX) == 3
+	# 		Z, F, O = WX
+	# 		Z = functions.tanh(Z)
+	# 		F = self.zoneout(F)
+	# 		O = functions.sigmoid(O)
+	# 		for t in xrange(Z.shape[2]):
+	# 			zt = Z[:, :, t]
+	# 			ft = F[:, :, t]
+	# 			ot = O[:, :, t]
+	# 			if self.ct is None:
+	# 				self.ct = (1 - ft) * zt
+	# 			else:
+	# 				self.ct = ft * self.ct + (1 - ft) * zt
+	# 			self.ht = ot * self.ct
+	# 			if self.H is None:
+	# 				self.H = functions.expand_dims(self.ht, 2)
+	# 			else:
+	# 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+	# 			if self._test:
+	# 				self.H.unchain_backward()
+	# 		return self.H
+
+	# 	# ifo-pooling
+	# 	if len(self._pooling) == 3:
+	# 		assert len(WX) == 4
+	# 		Z, F, O, I = WX
+	# 		Z = functions.tanh(Z)
+	# 		F = self.zoneout(F)
+	# 		O = functions.sigmoid(O)
+	# 		I = functions.sigmoid(I)
+	# 		for t in xrange(Z.shape[2]):
+	# 			zt = Z[:, :, t]
+	# 			ft = F[:, :, t]
+	# 			ot = O[:, :, t]
+	# 			it = I[:, :, t]
+	# 			if self.ct is None:
+	# 				self.ct = (1 - ft) * zt
+	# 			else:
+	# 				self.ct = ft * self.ct + it * zt
+	# 			self.ht = ot * self.ct
+	# 			if self.H is None:
+	# 				self.H = functions.expand_dims(self.ht, 2)
+	# 			else:
+	# 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+	# 			if self._test:
+	# 				self.H.unchain_backward()
+	# 		return self.H
+
+	# 	raise Exception()
 
 	def reset_state(self):
 		self.set_state(None, None, None)
