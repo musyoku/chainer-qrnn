@@ -120,9 +120,8 @@ def compute_accuracy_batch(model, batch):
 	Y = model(source, test=True)
 	return float(F.accuracy(Y, target, ignore_label=ID_PAD).data)
 
-def compute_accuracy(model, buckets):
+def compute_accuracy(model, buckets, batchsize=100):
 	acc = []
-	batchsize = 100
 	for dataset in buckets:
 		# split into minibatch
 		if len(dataset) > batchsize:
