@@ -176,9 +176,8 @@ def compute_perplexity_batch(model, batch):
 	# 	sum_log_likelihood += log_likelihood / num_tokens
 	# return math.exp(-sum_log_likelihood / batchsize)
 
-def compute_perplexity(model, buckets):
+def compute_perplexity(model, buckets, batchsize=100):
 	ppl = []
-	batchsize = 100
 	for dataset in buckets:
 		# split into minibatch
 		if len(dataset) > batchsize:
