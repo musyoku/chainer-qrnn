@@ -15,12 +15,12 @@ class Zoneout(function.Function):
 		type_check.expect(in_types[0].dtype.kind == 'f')
 
 	def forward(self, x):
-		if not hasattr(self, 'mask'):
+		if not hasattr(self, "mask"):
 			xp = cuda.get_array_module(*x)
 			if xp == np:
 				flag = xp.random.rand(*x[0].shape) >= self.zoneout_ratio
 			else:
-				flag = (xp.random.rand(*x[0].shape, dtype=np.float32) >= self.zoneout_ratio)
+				flag = xp.random.rand(*x[0].shape, dtype=np.float32) >= self.zoneout_ratio
 			self.mask = flag
 		return x[0] * self.mask,
 

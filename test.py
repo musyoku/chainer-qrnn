@@ -57,15 +57,16 @@ class EncoderDecoder(Chain):
 		y = self.l3(h2)
 		return y
 
-shape = (2, 3, 5)
+np.random.seed(0)
+shape = (2, 3, 6)
 prod = shape[0] * shape[1] * shape[2]
 data = np.arange(0, prod, dtype=np.float32).reshape(shape) / prod
 skip_mask = np.ones((data.shape[0], data.shape[2]), dtype=np.float32)
-skip_mask[:, :2] = 0
+skip_mask[:, :1] = 0
 
-data[:, :, 3] = "inf"
-qrnn1 = QRNN(shape[1], 4, kernel_size=4, pooling="fo", zoneout=False)
-qrnn2 = QRNN(4, 4, kernel_size=4, pooling="fo", zoneout=False)
+data[:, :, 4] = "inf"
+qrnn1 = QRNN(shape[1], 4, kernel_size=4, pooling="fo", zoneout=True, zoneout_ratio=0.9)
+qrnn2 = QRNN(4, 4, kernel_size=4, pooling="fo", zoneout=True)
 dense = L.Linear(4, 2)
 y = qrnn1(data, skip_mask=skip_mask)
 print(y.data)
@@ -74,7 +75,7 @@ print(y.data)
 # print(y.data)
 y = qrnn2(y)
 print(y.data)
-y = F.reshape(F.swapaxes(y, 1, 2), (2 * 5, -1))
+y = F.reshape(F.swapaxes(y, 1, 2), (2 * 6, -1))
 print(y.data)
 y = dense(y)
 print(y.data)
