@@ -52,6 +52,7 @@ def save_model(dirname, qrnn):
 		"vocab_size": qrnn.vocab_size,
 		"ndim_embedding": qrnn.ndim_embedding,
 		"ndim_h": qrnn.ndim_h,
+		"num_layers": qrnn.num_layers,
 		"kernel_size": qrnn.kernel_size,
 		"pooling": qrnn.pooling,
 		"zoneout": qrnn.zoneout,
@@ -72,7 +73,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = QRNN(params["vocab_size"], params["ndim_embedding"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"])
+		qrnn = QRNN(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -83,61 +84,99 @@ def load_model(dirname):
 		return None
 
 class QRNN(Chain):
-	def __init__(self, vocab_size, ndim_embedding, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
 		super(QRNN, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0),
-			l1=L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd),
-			l2=L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd),
-			l3=L.Linear(ndim_h, vocab_size),
+			dense=L.Linear(ndim_h, vocab_size),
 		)
+		assert num_layers > 0
 		self.vocab_size = vocab_size
 		self.ndim_embedding = ndim_embedding
+		self.num_layers = num_layers
 		self.ndim_h = ndim_h
 		self.kernel_size = kernel_size
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.wstd = wstd
 
+		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		for i in xrange(num_layers - 1):
+			self.add_link("qrnn{}".format(i + 1), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+
+	def rnn(self, index):
+		return getattr(self, "qrnn{}".format(index))
+
 	def reset_state(self):
-		self.l1.reset_state()
-		self.l2.reset_state()
+		for i in xrange(self.num_layers):
+			self.rnn(i).reset_state()
+
+	def _forward_rnn_one_layer(self, layer_index, in_data, test=False):
+		if test:
+			in_data.unchain_backward()
+		rnn = self.rnn(layer_index)
+		out_data = rnn(in_data, test=test)
+		if test:
+			out_data.unchain_backward()
+		return out_data
 
 	# we use "dense convolution"
 	# https://arxiv.org/abs/1608.06993
 	def __call__(self, X, test=False):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
-		H0 = self.embed(X)
-		H0 = F.swapaxes(H0, 1, 2)
+		enmbedding = self.embed(X)
+		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		self.l1(H0, test=test)
-		H1 = self.l1.get_all_hidden_states()
-		assert X.shape[1] == H1.shape[2]
+		out_data = self._forward_rnn_one_layer(0, enmbedding, test=test)
+		in_data = []
+		in_data.append(out_data)
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_rnn_one_layer(layer_index, in_data[-1], test=test)
+			if layer_index != self.num_layers - 1:
+				in_data.append(in_data[-1] + out_data)
 
-		self.l2(H1, test=test)
-		H2 = self.l2.get_all_hidden_states() + H1
-		assert X.shape[1] == H2.shape[2]
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		Y = self.dense(out_data)
 
-		H2 = F.reshape(F.swapaxes(H2, 1, 2), (batchsize * seq_length, -1))
-		Y = self.l3(H2)
+		if test:
+			Y.unchain_backward()
+
 		return Y
+
+	def _forward_rnn_one_layer_one_step(self, layer_index, in_data, test=False):
+		if test:
+			in_data.unchain_backward()
+		rnn = self.rnn(layer_index)
+		out_data = rnn.forward_one_step(in_data, test=test)
+		if test:
+			out_data.unchain_backward()
+		return out_data
 
 	def forward_one_step(self, X, test=False):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		ksize = self.kernel_size
+
 		if seq_length < ksize:
 			self.reset_state()
 			return self.__call__(X, test=test)
+
 		xt = X[:, -ksize:]
-		h0t = self.embed(xt)
-		h0t = F.swapaxes(h0t, 1, 2)
-		self.l1.forward_one_step(h0t, test=test)
-		H1 = self.l1.get_all_hidden_states()
-		h1t = H1[:, :, -ksize:]
-		self.l2.forward_one_step(h1t, test=test)
-		H2 = self.l2.get_all_hidden_states() + H1
-		h2t = H2[:, :, -ksize:]
-		h2t = F.reshape(F.swapaxes(h2t, 1, 2), (batchsize * ksize, -1))
-		Y = self.l3(h2t)
+		enmbedding = self.embed(xt)
+		enmbedding = F.swapaxes(enmbedding, 1, 2)
+
+		out_data = self._forward_rnn_one_layer_one_step(0, enmbedding, test=test)
+		in_data = []
+		in_data.append(out_data)
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_rnn_one_layer_one_step(layer_index, in_data[-1], test=test)
+			if layer_index != self.num_layers - 1:
+				in_data.append(in_data[-1] + out_data)
+
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		Y = self.dense(out_data)
+
+		if test:
+			Y.unchain_backward()
+			
 		return Y

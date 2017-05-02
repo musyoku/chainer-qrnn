@@ -26,23 +26,6 @@ ID_UNK = 1
 ID_BOS = 2
 ID_EOS = 3
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--batchsize", "-b", type=int, default=50)
-parser.add_argument("--epoch", "-e", type=int, default=30)
-parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
-parser.add_argument("--weight-decay", "-wd", type=float, default=1-2e-4) 
-parser.add_argument("--ndim-h", "-nh", type=int, default=256)
-parser.add_argument("--ndim-embedding", "-ne", type=int, default=128)
-parser.add_argument("--interval", type=int, default=100)
-parser.add_argument("--pooling", "-p", type=str, default="fo")
-parser.add_argument("--wstd", "-w", type=float, default=1)
-parser.add_argument("--text-filename", "-f", default=None)
-parser.add_argument("--model-dir", "-m", type=str, default="model")
-parser.add_argument("--zoneout", default=False, action="store_true")
-parser.add_argument("--eve", default=False, action="store_true")
-args = parser.parse_args()
-
 def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed=0):
 	assert(train_split_ratio + validation_split_ratio <= 1)
 	vocab = {
@@ -168,8 +151,9 @@ def compute_perplexity_batch(model, batch):
 		source = cuda.to_gpu(source)
 		target = cuda.to_gpu(target)
 	model.reset_state()
-	Y = F.softmax(model(source, test=True)).data
-	P = Y[xp.arange(0, len(target)), target] + 1e-32
+	Y = F.softmax(model(source, test=True))
+	Y.unchain_backward()
+	P = Y.data[xp.arange(0, len(target)), target] + 1e-32
 	log_P = xp.log(P)
 	mask = target != ID_PAD
 	log_P *= mask
@@ -216,7 +200,7 @@ def compute_minibatch_perplexity(model, buckets, batchsize=100):
 		ppl.append(compute_perplexity_batch(model, batch))
 	return reduce(lambda x, y: x + y, ppl) / len(ppl)
 
-def main():
+def main(args):
 	# load textfile
 	train_dataset, validation_dataset, test_dataset, vocab, vocab_inv = read_data(args.text_filename)
 	save_vocab(args.model_dir, vocab, vocab_inv)
@@ -253,7 +237,7 @@ def main():
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = QRNN(vocab_size, args.ndim_embedding, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
+		model = QRNN(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -270,7 +254,7 @@ def main():
 	# training
 	num_iteration = len(train_dataset) // args.batchsize
 	for epoch in xrange(1, args.epoch + 1):
-		print("\rEpoch", epoch)
+		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
 			for repeat, dataset in zip(repeats, train_buckets):
 				for r in xrange(repeat):
@@ -293,4 +277,21 @@ def main():
 				save_model(args.model_dir, model)
 
 if __name__ == "__main__":
-	main()
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--batchsize", "-b", type=int, default=50)
+	parser.add_argument("--epoch", "-e", type=int, default=30)
+	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
+	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
+	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
+	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
+	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
+	parser.add_argument("--num-layers", "-layers", type=int, default=2)
+	parser.add_argument("--interval", type=int, default=100)
+	parser.add_argument("--pooling", "-p", type=str, default="fo")
+	parser.add_argument("--wstd", "-w", type=float, default=1)
+	parser.add_argument("--text-filename", "-f", default=None)
+	parser.add_argument("--model-dir", "-m", type=str, default="model")
+	parser.add_argument("--zoneout", default=False, action="store_true")
+	parser.add_argument("--eve", default=False, action="store_true")
+	args = parser.parse_args()
+	main(args)
