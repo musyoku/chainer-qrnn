@@ -24,23 +24,26 @@ def print_bold(str):
 # https://www.tensorflow.org/tutorials/seq2seq
 
 bucket_sizes = [(5, 10), (10, 15), (20, 25), (40, 50), (100, 110), (200, 210)]
-ID_PAD = -1
-ID_UNK = 0
-ID_EOS = 1
-ID_GO = 2
+ID_PAD = 0
+ID_UNK = 1
+ID_EOS = 2
+ID_GO = 3
 
 def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0, reverse=True):
 	assert(train_split_ratio + dev_split_ratio <= 1)
 	vocab_source = {
+		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
 	}
 	vocab_target = {
+		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
 		"<eos>": ID_EOS,
 		"<go>": ID_GO,
 	}
 	source_dataset = []
 	with codecs.open(source_filename, "r", "utf-8") as f:
+		new_word_id = ID_UNK + 1
 		for sentence in f:
 			sentence = sentence.strip()
 			if len(sentence) == 0:
@@ -49,7 +52,8 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 			words = sentence.split(" ")
 			for word in words:
 				if word not in vocab_source:
-					vocab_source[word] = len(vocab_source)
+					vocab_source[word] = new_word_id
+					new_word_id += 1
 				word_id = vocab_source[word]
 				word_ids.append(word_id)
 			if reverse:
@@ -58,6 +62,7 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 
 	target_dataset = []
 	with codecs.open(target_filename, "r", "utf-8") as f:
+		new_word_id = ID_GO + 1
 		for sentence in f:
 			sentence = sentence.strip()
 			if len(sentence) == 0:
@@ -66,7 +71,8 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 			words = sentence.split(" ")
 			for word in words:
 				if word not in vocab_target:
-					vocab_target[word] = len(vocab_target)
+					vocab_target[word] = new_word_id
+					new_word_id += 1
 				word_id = vocab_target[word]
 				word_ids.append(word_id)
 			word_ids.append(ID_EOS)
@@ -343,8 +349,10 @@ def main(args):
 				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 				sys.stdout.flush()
 
-			if itr % args.interval == 0:
+			if epoch % args.interval == 0:
 				model.to_cpu()
+				sys.stdout.write("\r")
+				sys.stdout.flush()
 				for _, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
 					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
 					skip_mask = source_batch != ID_PAD
@@ -353,19 +361,29 @@ def main(args):
 					for n in xrange(len(source_batch)):
 						model.reset_state()
 						x = np.asarray([[token]]).astype(np.int32)
-						encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :])
+						encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
 						while token != ID_EOS and x.shape[1] < 50:
 							model.reset_decoder_state()
 							u = model.decode(x, encoder_hidden_states, test=True)
 							p = F.softmax(u).data[-1]
 							token = np.random.choice(word_ids, size=1, p=p)
 							x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
+
+						sentence = []
+						for token in source_batch[n, :]:
+							word = vocab_inv_source[token]
+							sentence.append(word)
+						print(" ".join(sentence))
+						
 						sentence = []
 						for token in x[0]:
 							word = vocab_inv_target[token]
 							sentence.append(word)
 						print(" ".join(sentence))
 				model.to_gpu()
+
+		sys.stdout.write("\r")
+		sys.stdout.flush()
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -379,7 +397,7 @@ if __name__ == "__main__":
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wstd", "-w", type=float, default=1)
+	parser.add_argument("--wstd", "-w", type=float, default=0.1)
 	parser.add_argument("--source-filename", "-source", default=None)
 	parser.add_argument("--target-filename", "-target", default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")

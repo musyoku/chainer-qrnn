@@ -274,9 +274,12 @@ def main(args):
 				sys.stdout.flush()
 
 			if itr % args.interval == 0:
-				print("\raccuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets, args.batchsize), compute_accuracy(model, validation_buckets, args.batchsize)))
-				print("\rppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets, args.batchsize), compute_perplexity(model, validation_buckets, args.batchsize)))
+				print("\r	accuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets, args.batchsize), compute_accuracy(model, validation_buckets, args.batchsize)))
+				print("\r	ppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets, args.batchsize), compute_perplexity(model, validation_buckets, args.batchsize)))
 				save_model(args.model_dir, model)
+
+		sys.stdout.write("\r")
+		sys.stdout.flush()
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -290,7 +293,7 @@ if __name__ == "__main__":
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wstd", "-w", type=float, default=1)
+	parser.add_argument("--wstd", "-w", type=float, default=0.1)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--text-filename", "-f", default=None)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")

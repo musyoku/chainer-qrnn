@@ -48,12 +48,6 @@ class QRNN(link.Chain):
 		# |< t1 >|
 		#     |< t2 >|
 		#         |< t3 >|
-		if skip_mask is not None:
-			assert skip_mask.ndim == 2
-			assert skip_mask.shape[0] == X.shape[0]
-			assert skip_mask.shape[1] == X.shape[2]
-			X *= skip_mask[:, None, :]
-
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, :-pad]
 

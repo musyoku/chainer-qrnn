@@ -89,7 +89,6 @@ def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, 
 		pass
 	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size, pooling, zoneout, wstd)
 
-
 class Seq2SeqModel(Chain):
 	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
 		super(Seq2SeqModel, self).__init__(
