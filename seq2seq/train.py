@@ -29,7 +29,7 @@ ID_UNK = 1
 ID_EOS = 2
 ID_GO = 3
 
-def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0, reverse=True):
+def read_data(source_filename, target_filename, train_split_ratio=0.1, dev_split_ratio=0.85, seed=0, reverse=True):
 	assert(train_split_ratio + dev_split_ratio <= 1)
 	vocab_source = {
 		"<pad>": ID_PAD,
@@ -381,7 +381,8 @@ def main(args):
 							model.reset_decoder_state()
 							u = model.decode(x, encoder_hidden_states, test=True)
 							p = F.softmax(u).data[-1]
-							token = np.random.choice(word_ids, size=1, p=p)
+							# token = np.random.choice(word_ids, size=1, p=p)
+							token = [np.argmax(p)]
 							x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
 
 						sentence = []
@@ -394,16 +395,26 @@ def main(args):
 						print("source:", " ".join(sentence))
 
 						sentence = []
+						for token in target_batch[n, :]:
+							if token == ID_PAD:
+								continue
+							if token == ID_GO:
+								continue
+							word = vocab_inv_target[token]
+							sentence.append(word)
+						print("target:", " ".join(sentence))
+
+						sentence = []
 						for token in x[0]:
-							# if token == ID_EOS:
-							# 	break
+							if token == ID_EOS:
+								break
 							# if token == ID_PAD:
 							# 	break
 							if token == ID_GO:
 								continue
 							word = vocab_inv_target[token]
 							sentence.append(word)
-						print("target:", " ".join(sentence))
+						print("predict:", " ".join(sentence))
 				model.to_gpu()
 
 		sys.stdout.write("\r")

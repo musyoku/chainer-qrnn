@@ -99,42 +99,50 @@ def _translate(model, buckets, vocab_inv_source, vocab_inv_target):
 				sentence.append(word)
 			print("target:", " ".join(sentence))
 
-def translate(model, buckets, vocab_inv_source, vocab_inv_target):
+def translate(model, buckets, vocab_inv_source, vocab_inv_target, batchsize=100):
 	for bucket in buckets:
-		batch = bucket[:10]
-		skip_mask = batch != ID_PAD
-		word_ids = np.arange(0, len(vocab_inv_target), dtype=np.int32)
-		for n in xrange(len(batch)):
-			model.reset_state()
-			token = ID_GO
-			x = np.asarray([[token]]).astype(np.int32)
-			encoder_hidden_states = model.encode(batch[None, n, :], skip_mask[None, n, :], test=True)
-			while token != ID_EOS and x.shape[1] < 50:
-				u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]
-				p = F.softmax(u).data[-1]
-				token = np.random.choice(word_ids, size=1, p=p)
-				x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
+		if len(bucket) > batchsize:
+			num_sections = len(bucket) // batchsize - 1
+			if len(bucket) % batchsize > 0:
+				num_sections += 1
+			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+			sections = np.split(bucket, indices, axis=0)
+		else:
+			sections = [bucket]
+		for batch in sections:
+			skip_mask = batch != ID_PAD
+			word_ids = np.arange(0, len(vocab_inv_target), dtype=np.int32)
+			for n in xrange(len(batch)):
+				model.reset_state()
+				token = ID_GO
+				x = np.asarray([[token]]).astype(np.int32)
+				encoder_hidden_states = model.encode(batch[None, n, :], skip_mask[None, n, :], test=True)
+				while token != ID_EOS and x.shape[1] < 50:
+					u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]
+					p = F.softmax(u).data[-1]
+					token = np.random.choice(word_ids, size=1, p=p)
+					x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
 
-			sentence = []
-			for token in batch[n, :]:
-				if token == ID_PAD:
-					continue
-				word = vocab_inv_source[token]
-				sentence.append(word)
-			sentence.reverse()
-			print("source:", " ".join(sentence))
+				sentence = []
+				for token in batch[n, :]:
+					if token == ID_PAD:
+						continue
+					word = vocab_inv_source[token]
+					sentence.append(word)
+				sentence.reverse()
+				print("source:", " ".join(sentence))
 
-			sentence = []
-			for token in x[0]:
-				# if token == ID_EOS:
-				# 	break
-				# if token == ID_PAD:
-				# 	break
-				if token == ID_GO:
-					continue
-				word = vocab_inv_target[token]
-				sentence.append(word)
-			print("target:", " ".join(sentence))
+				sentence = []
+				for token in x[0]:
+					# if token == ID_EOS:
+					# 	break
+					# if token == ID_PAD:
+					# 	break
+					if token == ID_GO:
+						continue
+					word = vocab_inv_target[token]
+					sentence.append(word)
+				print("target:", " ".join(sentence))
 
 def main(args):
 	# load vocab

@@ -53,7 +53,6 @@ def save_model(dirname, model):
 		"ndim_embedding": model.ndim_embedding,
 		"ndim_h": model.ndim_h,
 		"num_layers": model.num_layers,
-		"kernel_size": model.kernel_size,
 		"pooling": model.pooling,
 		"zoneout": model.zoneout,
 		"wstd": model.wstd,
@@ -74,7 +73,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		model = seq2seq(params["vocab_size_enc"], params["vocab_size_dec"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["attention"])
+		model = seq2seq(params["vocab_size_enc"], params["vocab_size_dec"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["pooling"], params["zoneout"], params["wstd"], params["attention"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -84,13 +83,13 @@ def load_model(dirname):
 	else:
 		return None
 
-def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, attention=False):
+def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, attention=False):
 	if attention:
 		pass
-	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size, pooling, zoneout, wstd)
+	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd)
 
 class Seq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1):
 		super(Seq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -102,18 +101,21 @@ class Seq2SeqModel(Chain):
 		self.ndim_embedding = ndim_embedding
 		self.num_layers = num_layers
 		self.ndim_h = ndim_h
-		self.kernel_size = kernel_size
+		self.kernel_size_encoder_first = 6
+		self.kernel_size_encoder_other = 2
+		self.kernel_size_decoder_first = 4
+		self.kernel_size_decoder_other = 4
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.wstd = wstd
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_encoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
 
-		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
 		for i in xrange(num_layers - 1):
-			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
@@ -204,7 +206,7 @@ class Seq2SeqModel(Chain):
 		assert len(last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
-		ksize = self.kernel_size
+		ksize = self.kernel_size_decoder_first
 
 		if seq_length < ksize:
 			self.reset_state()
@@ -214,7 +216,10 @@ class Seq2SeqModel(Chain):
 		enmbedding = self.decoder_embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
+		ksize = self.kernel_size_decoder_other
 		out_data = self._forward_decoder_one_layer_one_step(0, enmbedding, last_hidden_states[0], test=test)
+		if ksize != self.kernel_size_decoder_first:
+			out_data = out_data[:, -ksize:]
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_decoder_one_layer_one_step(layer_index, out_data, last_hidden_states[layer_index], test=test)
 
