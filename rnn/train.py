@@ -124,7 +124,9 @@ def compute_accuracy(model, buckets, batchsize=100):
 	for dataset in buckets:
 		# split into minibatch
 		if len(dataset) > batchsize:
-			num_sections = len(dataset) // batchsize
+			num_sections = len(dataset) // batchsize - 1
+			if len(dataset) % batchsize > 0:
+				num_sections += 1
 			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
 			sections = np.split(dataset, indices, axis=0)
 		else:
@@ -180,7 +182,9 @@ def compute_perplexity(model, buckets, batchsize=100):
 	for dataset in buckets:
 		# split into minibatch
 		if len(dataset) > batchsize:
-			num_sections = len(dataset) // batchsize
+			num_sections = len(dataset) // batchsize - 1
+			if len(dataset) % batchsize > 0:
+				num_sections += 1
 			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
 			sections = np.split(dataset, indices, axis=0)
 		else:

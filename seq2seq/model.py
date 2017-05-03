@@ -86,6 +86,94 @@ def load_model(dirname):
 class Seq2Seq(Chain):
 	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
 		super(QRNN, self).__init__(
+			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0),
+			dense=L.Linear(ndim_h, vocab_size),
+		)
+		assert num_layers > 0
+		self.vocab_size = vocab_size
+		self.ndim_embedding = ndim_embedding
+		self.num_layers = num_layers
+		self.ndim_h = ndim_h
+		self.kernel_size = kernel_size
+		self.pooling = pooling
+		self.zoneout = zoneout
+		self.wstd = wstd
+
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		for i in xrange(num_layers - 1):
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+
+		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		for i in xrange(num_layers - 1):
+			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+
+	def encoder(self, index):
+		return getattr(self, "enc{}".format(index))
+
+	def decoder(self, index):
+		return getattr(self, "dec{}".format(index))
+
+	def reset_state(self):
+		for i in xrange(self.num_layers):
+			self.encoder(i).reset_state()
+			self.decoder(i).reset_state()
+
+	def _forward_encoder_one_layer(self, layer_index, in_data, skip_mask=None, test=False):
+		if test:
+			in_data.unchain_backward()
+		encoder = self.encoder(layer_index, skip_mask=skip_mask)
+		out_data = encoder(in_data, test=test)
+		if test:
+			out_data.unchain_backward()
+		return out_data
+
+	def _forward_decoder_one_layer(self, layer_index, in_data, encoder_hidden_state, test=False):
+		if test:
+			in_data.unchain_backward()
+		decoder = self.decoder(layer_index, skip_mask=skip_mask)
+		out_data = decoder(in_data, encoder_hidden_state, test=test)
+		if test:
+			out_data.unchain_backward()
+		return out_data
+
+	def encode(self, X, skip_mask=None, test=False):
+		batchsize = X.shape[0]
+		seq_length = X.shape[1]
+		enmbedding = self.embed(X)
+		enmbedding = F.swapaxes(enmbedding, 1, 2)
+
+		out_data = self._forward_encoder_one_layer(0, enmbedding, skip_mask=skip_mask, test=test)
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_encoder_one_layer(layer_index, out_data, skip_mask=skip_mask, test=test)
+
+		if test:
+			out_data.unchain_backward()
+
+		last_hidden_states = []
+		for layer_index in xrange(0, self.num_layers):
+			encoder = self.encoder(layer_index)
+			last_hidden_states.append(encoder.get_last_hidden_state())
+
+		return last_hidden_states
+
+	def decode(self, X, last_hidden_states, test=False):
+		assert len(last_hidden_states) == self.num_layers
+
+		out_data = self._forward_decoder_one_layer(0, enmbedding, last_hidden_states[0], test=test)
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_decoder_one_layer(layer_index, out_data, last_hidden_states[layer_index], test=test)
+
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		Y = self.dense(out_data)
+
+		if test:
+			Y.unchain_backward()
+
+		return Y
+
+class AttentiveSeq2Seq(Chain):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
+		super(QRNN, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0)
 		)
 		assert num_layers > 0
@@ -121,24 +209,24 @@ class Seq2Seq(Chain):
 			self.encoder(i).reset_state()
 			self.decoder(i).reset_state()
 
-	def _forward_encoder_one_layer(self, layer_index, in_data, test=False):
+	def _forward_encoder_one_layer(self, layer_index, in_data, skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
-		rnn = self.rnn(layer_index)
-		out_data = rnn(in_data, test=test)
+		encoder = self.encoder(layer_index, skip_mask=skip_mask)
+		out_data = encoder(in_data, test=test)
 		if test:
 			out_data.unchain_backward()
 		return out_data
 
-	def encode(self, X, test=False):
+	def encode(self, X, skip_mask=None, test=False):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		enmbedding = self.embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		in_data = self._forward_encoder_one_layer(0, enmbedding, test=test)
+		in_data = self._forward_encoder_one_layer(0, enmbedding, skip_mask=skip_mask, test=test)
 		for layer_index in xrange(1, self.num_layers):
-			in_data = self._forward_encoder_one_layer(layer_index, in_data, test=test)	# dense conv
+			in_data = self._forward_encoder_one_layer(layer_index, in_data, skip_mask=skip_mask, test=test)
 
 		out_data = in_data
 
