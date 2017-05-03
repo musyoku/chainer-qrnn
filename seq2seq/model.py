@@ -6,7 +6,6 @@ import qrnn as L
 
 def save_vocab(dirname, vocab, vocab_inv):
 	vocab_filename = dirname + "/vocab.pickle"
-	inv_filename = dirname + "/inv.pickle"
 	
 	try:
 		os.mkdir(dirname)
@@ -14,26 +13,26 @@ def save_vocab(dirname, vocab, vocab_inv):
 		pass
 
 	with open(vocab_filename, mode="wb") as f:
-		pickle.dump(vocab, f)
-	
-	with open(inv_filename, mode="wb") as f:
-		pickle.dump(vocab_inv, f)
+		source, target = vocab
+		pickle.dump(source, f)
+		pickle.dump(target, f)
+		source, target = vocab_inv
+		pickle.dump(source, f)
+		pickle.dump(target, f)
 
 def load_vocab(dirname):
-	vocab = None
-	vocab_inv = None
+	vocab_source, vocab_target = None, None
+	vocab_source_inv, vocab_target_inv = None, None
 	vocab_filename = dirname + "/vocab.pickle"
-	inv_filename = dirname + "/inv.pickle"
 	
 	if os.path.isfile(vocab_filename):
 		with open(vocab_filename, mode="rb") as f:
-			vocab = pickle.load(f)
-	
-	if os.path.isfile(inv_filename):
-		with open(inv_filename, mode="rb") as f:
-			vocab_inv = pickle.load(f)
+			vocab_source = pickle.load(f)
+			vocab_target = pickle.load(f)
+			vocab_source_inv = pickle.load(f)
+			vocab_target_inv = pickle.load(f)
 
-	return vocab, vocab_inv
+	return (vocab_source, vocab_target), (vocab_source_inv, vocab_target_inv)
 
 def save_model(dirname, model):
 	model_filename = dirname + "/model.hdf5"
@@ -49,7 +48,8 @@ def save_model(dirname, model):
 	serializers.save_hdf5(model_filename, model)
 
 	params = {
-		"vocab_size": model.vocab_size,
+		"vocab_size_enc": model.vocab_size_enc,
+		"vocab_size_dec": model.vocab_size_dec,
 		"ndim_embedding": model.ndim_embedding,
 		"ndim_h": model.ndim_h,
 		"num_layers": model.num_layers,
@@ -74,7 +74,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		model = seq2seq(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["attention"])
+		model = seq2seq(params["vocab_size_enc"], params["vocab_size_dec"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["attention"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -84,20 +84,22 @@ def load_model(dirname):
 	else:
 		return None
 
-def seq2seq(vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, attention=False):
+def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, attention=False):
 	if attention:
 		pass
-	return Seq2SeqModel(vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size, pooling, zoneout, wstd)
+	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size, pooling, zoneout, wstd)
 
 
 class Seq2SeqModel(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
 		super(Seq2SeqModel, self).__init__(
-			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0),
-			dense=L.Linear(ndim_h, vocab_size),
+			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
+			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
+			dense=L.Linear(ndim_h, vocab_size_dec),
 		)
 		assert num_layers > 0
-		self.vocab_size = vocab_size
+		self.vocab_size_enc = vocab_size_enc
+		self.vocab_size_dec = vocab_size_dec
 		self.ndim_embedding = ndim_embedding
 		self.num_layers = num_layers
 		self.ndim_h = ndim_h
@@ -154,7 +156,7 @@ class Seq2SeqModel(Chain):
 	def encode(self, X, skip_mask=None, test=False):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
-		enmbedding = self.embed(X)
+		enmbedding = self.encoder_embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_encoder_one_layer(0, enmbedding, skip_mask=skip_mask, test=test)
@@ -175,7 +177,7 @@ class Seq2SeqModel(Chain):
 		assert len(last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
-		enmbedding = self.embed(X)
+		enmbedding = self.decoder_embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_decoder_one_layer(0, enmbedding, last_hidden_states[0], test=test)

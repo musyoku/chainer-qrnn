@@ -21,14 +21,15 @@ def print_bold(str):
 	print(stdout.BOLD + str + stdout.END)
 
 bucket_sizes = [10, 20, 40, 100, 200]
-ID_PAD = -1
-ID_UNK = 0
-ID_BOS = 1
-ID_EOS = 2
+ID_PAD = 0
+ID_UNK = 1
+ID_BOS = 2
+ID_EOS = 3
 
 def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed=0):
 	assert(train_split_ratio + validation_split_ratio <= 1)
 	vocab = {
+		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
 		"<bos>": ID_BOS,
 		"<eos>": ID_EOS,

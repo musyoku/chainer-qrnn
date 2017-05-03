@@ -25,16 +25,19 @@ def print_bold(str):
 
 bucket_sizes = [(5, 10), (10, 15), (20, 25), (40, 50), (100, 110), (200, 210)]
 ID_PAD = -1
-ID_GO = 0
-ID_UNK = 1
-ID_EOS = 2
+ID_UNK = 0
+ID_EOS = 1
+ID_GO = 2
 
 def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0, reverse=True):
 	assert(train_split_ratio + dev_split_ratio <= 1)
-	vocab = {
-		"<go>": ID_GO,
+	vocab_source = {
+		"<unk>": ID_UNK,
+	}
+	vocab_target = {
 		"<unk>": ID_UNK,
 		"<eos>": ID_EOS,
+		"<go>": ID_GO,
 	}
 	source_dataset = []
 	with codecs.open(source_filename, "r", "utf-8") as f:
@@ -45,9 +48,9 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 			word_ids = []
 			words = sentence.split(" ")
 			for word in words:
-				if word not in vocab:
-					vocab[word] = len(vocab)
-				word_id = vocab[word]
+				if word not in vocab_source:
+					vocab_source[word] = len(vocab_source)
+				word_id = vocab_source[word]
 				word_ids.append(word_id)
 			if reverse:
 				word_ids.reverse()
@@ -62,16 +65,20 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 			word_ids = [ID_GO]
 			words = sentence.split(" ")
 			for word in words:
-				if word not in vocab:
-					vocab[word] = len(vocab)
-				word_id = vocab[word]
+				if word not in vocab_target:
+					vocab_target[word] = len(vocab_target)
+				word_id = vocab_target[word]
 				word_ids.append(word_id)
 			word_ids.append(ID_EOS)
 			target_dataset.append(word_ids)
 
-	vocab_inv = {}
-	for word, word_id in vocab.items():
-		vocab_inv[word_id] = word
+	vocab_inv_source = {}
+	for word, word_id in vocab_source.items():
+		vocab_inv_source[word_id] = word
+
+	vocab_inv_target = {}
+	for word, word_id in vocab_target.items():
+		vocab_inv_target[word_id] = word
 
 	assert len(target_dataset) == len(source_dataset)
 
@@ -98,7 +105,7 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 	assert len(source_dev) == len(target_dev)
 	assert len(source_test) == len(target_test)
 
-	return (source_train, source_dev, source_test), (target_train, target_dev, target_test), vocab, vocab_inv
+	return (source_train, source_dev, source_test), (target_train, target_dev, target_test), (vocab_source, vocab_target), (vocab_inv_source, vocab_inv_target)
 
 # input:
 # [34, 1093, 22504, 16399]
@@ -254,7 +261,6 @@ def main(args):
 	# load textfile
 	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename)
 	save_vocab(args.model_dir, vocab, vocab_inv)
-	vocab_size = len(vocab)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
@@ -262,7 +268,11 @@ def main(args):
 	print("train	{}".format(len(source_dataset_train)))
 	print("dev	{}".format(len(source_dataset_dev)))
 	print("test	{}".format(len(source_dataset_test)))
-	print("vocab	{}".format(vocab_size))
+
+	vocab_source, vocab_target = vocab
+	vocab_inv_source, vocab_inv_target = vocab_inv
+	print("vocab	{}	(source)".format(len(vocab_source)))
+	print("vocab	{}	(target)".format(len(vocab_target)))
 
 	# split into buckets
 	source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
@@ -290,7 +300,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = seq2seq(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=False)
+		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=False)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -338,7 +348,7 @@ def main(args):
 				for _, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
 					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
 					skip_mask = source_batch != ID_PAD
-					word_ids = np.arange(0, vocab_size, dtype=np.int32)
+					word_ids = np.arange(0, len(vocab_target), dtype=np.int32)
 					token = ID_GO
 					for n in xrange(len(source_batch)):
 						model.reset_state()
@@ -352,7 +362,7 @@ def main(args):
 							x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
 						sentence = []
 						for token in x[0]:
-							word = vocab_inv[token]
+							word = vocab_inv_target[token]
 							sentence.append(word)
 						print(" ".join(sentence))
 				model.to_gpu()
@@ -360,7 +370,7 @@ def main(args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--batchsize", "-b", type=int, default=50)
-	parser.add_argument("--epoch", "-e", type=int, default=30)
+	parser.add_argument("--epoch", "-e", type=int, default=100)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
