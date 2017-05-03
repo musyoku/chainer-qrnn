@@ -282,15 +282,26 @@ def main(args):
 
 	# split into buckets
 	source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
+	if args.buckets_limit is not None:
+		source_buckets_train = source_buckets_train[:args.buckets_limit+1]
+		target_buckets_train = target_buckets_train[:args.buckets_limit+1]
 	print_bold("buckets 	#data	(train)")
 	for size, data in zip(bucket_sizes, source_buckets_train):
 		print("{} 	{}".format(size, len(data)))
 	print_bold("buckets 	#data	(dev)")
+
 	source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
+	if args.buckets_limit is not None:
+		source_buckets_dev = source_buckets_dev[:args.buckets_limit+1]
+		target_buckets_dev = target_buckets_dev[:args.buckets_limit+1]
 	for size, data in zip(bucket_sizes, source_buckets_dev):
 		print("{} 	{}".format(size, len(data)))
 	print_bold("buckets		#data	(test)")
+
 	source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
+	if args.buckets_limit is not None:
+		source_buckets_test = source_buckets_test[:args.buckets_limit+1]
+		target_buckets_test = target_buckets_test[:args.buckets_limit+1]
 	for size, data in zip(bucket_sizes, source_buckets_test):
 		print("{} 	{}".format(size, len(data)))
 
@@ -321,7 +332,7 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 
 	# training
-	num_iteration = len(source_dataset) // args.batchsize
+	num_iteration = len(source_dataset_train) // args.batchsize + 1
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
@@ -349,17 +360,18 @@ def main(args):
 				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 				sys.stdout.flush()
 
-			if epoch % args.interval == 0:
+			if itr % args.interval == 0:
+				save_model(args.model_dir, model)
 				model.to_cpu()
 				sys.stdout.write("\r")
 				sys.stdout.flush()
 				for _, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
-					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
+					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, 10)
 					skip_mask = source_batch != ID_PAD
 					word_ids = np.arange(0, len(vocab_target), dtype=np.int32)
-					token = ID_GO
 					for n in xrange(len(source_batch)):
 						model.reset_state()
+						token = ID_GO
 						x = np.asarray([[token]]).astype(np.int32)
 						encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
 						while token != ID_EOS and x.shape[1] < 50:
@@ -371,15 +383,24 @@ def main(args):
 
 						sentence = []
 						for token in source_batch[n, :]:
+							if token == ID_PAD:
+								continue
 							word = vocab_inv_source[token]
 							sentence.append(word)
-						print(" ".join(sentence))
-						
+						sentence.reverse()
+						print("source:", " ".join(sentence))
+
 						sentence = []
 						for token in x[0]:
+							# if token == ID_EOS:
+							# 	break
+							# if token == ID_PAD:
+							# 	break
+							if token == ID_GO:
+								continue
 							word = vocab_inv_target[token]
 							sentence.append(word)
-						print(" ".join(sentence))
+						print("target:", " ".join(sentence))
 				model.to_gpu()
 
 		sys.stdout.write("\r")
@@ -397,9 +418,10 @@ if __name__ == "__main__":
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wstd", "-w", type=float, default=0.1)
+	parser.add_argument("--wstd", "-w", type=float, default=0.02)
 	parser.add_argument("--source-filename", "-source", default=None)
 	parser.add_argument("--target-filename", "-target", default=None)
+	parser.add_argument("--buckets-limit", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--zoneout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
