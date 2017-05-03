@@ -254,7 +254,7 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 
 	# training
-	num_iteration = len(train_dataset) // args.batchsize
+	num_iteration = len(train_dataset) // args.batchsize + 1
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
@@ -293,7 +293,7 @@ if __name__ == "__main__":
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wstd", "-w", type=float, default=0.1)
+	parser.add_argument("--wstd", "-w", type=float, default=0.02)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--text-filename", "-f", default=None)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")

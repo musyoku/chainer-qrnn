@@ -56,12 +56,11 @@ class QRNN(link.Chain):
 
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
-	def forward_one_step(self, X, test=False):
-		assert isinstance(X, Variable)
+	def forward_one_step(self, X, skip_mask=None, test=False):
 		self._test = test
 		pad = self._kernel_size - 1
-		WX = self.W(X)[:, :, -pad-1:-pad]
-		return self.pool(functions.split_axis(WX, self.num_split, axis=1))
+		WX = self.W(X)[:, :, -pad-1, None]
+		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
 	def zoneout(self, U):
 		if self._zoneout and self._test == False:
@@ -122,78 +121,6 @@ class QRNN(link.Chain):
 
 		return self.H
 
-	# def _pool(self, WX):
-	# 	# f-pooling
-	# 	if len(self._pooling) == 1:
-	# 		assert len(WX) == 2
-	# 		Z, F = WX
-	# 		Z = functions.tanh(Z)
-	# 		F = self.zoneout(F)
-	# 		for t in xrange(Z.shape[2]):
-	# 			zt = Z[:, :, t]
-	# 			ft = F[:, :, t]
-	# 			if self.H is None:
-	# 				self.ht = (1 - ft) * zt
-	# 				self.H = functions.expand_dims(self.ht, 2)
-	# 			else:
-	# 				self.ht = ft * self.ht + (1 - ft) * zt
-	# 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
-	# 			if self._test:
-	# 				self.H.unchain_backward()
-	# 		return self.H
-
-	# 	# fo-pooling
-	# 	if len(self._pooling) == 2:
-	# 		assert len(WX) == 3
-	# 		Z, F, O = WX
-	# 		Z = functions.tanh(Z)
-	# 		F = self.zoneout(F)
-	# 		O = functions.sigmoid(O)
-	# 		for t in xrange(Z.shape[2]):
-	# 			zt = Z[:, :, t]
-	# 			ft = F[:, :, t]
-	# 			ot = O[:, :, t]
-	# 			if self.ct is None:
-	# 				self.ct = (1 - ft) * zt
-	# 			else:
-	# 				self.ct = ft * self.ct + (1 - ft) * zt
-	# 			self.ht = ot * self.ct
-	# 			if self.H is None:
-	# 				self.H = functions.expand_dims(self.ht, 2)
-	# 			else:
-	# 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
-	# 			if self._test:
-	# 				self.H.unchain_backward()
-	# 		return self.H
-
-	# 	# ifo-pooling
-	# 	if len(self._pooling) == 3:
-	# 		assert len(WX) == 4
-	# 		Z, F, O, I = WX
-	# 		Z = functions.tanh(Z)
-	# 		F = self.zoneout(F)
-	# 		O = functions.sigmoid(O)
-	# 		I = functions.sigmoid(I)
-	# 		for t in xrange(Z.shape[2]):
-	# 			zt = Z[:, :, t]
-	# 			ft = F[:, :, t]
-	# 			ot = O[:, :, t]
-	# 			it = I[:, :, t]
-	# 			if self.ct is None:
-	# 				self.ct = (1 - ft) * zt
-	# 			else:
-	# 				self.ct = ft * self.ct + it * zt
-	# 			self.ht = ot * self.ct
-	# 			if self.H is None:
-	# 				self.H = functions.expand_dims(self.ht, 2)
-	# 			else:
-	# 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
-	# 			if self._test:
-	# 				self.H.unchain_backward()
-	# 		return self.H
-
-	# 	raise Exception()
-
 	def reset_state(self):
 		self.set_state(None, None, None)
 
@@ -239,6 +166,20 @@ class QRNNDecoder(QRNN):
 		# Vh = [[[ 	11	11	11]
 		# 		 [	12	12	12]
 		# 		 [	13	13	13]
+		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
+
+		if test:
+			WX.unchain_backward()
+			Vh.unchain_backward()
+
+		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
+
+	def forward_one_step(self, X, ht_enc, test=False):
+		self._test = test
+		pad = self._kernel_size - 1
+		WX = self.W(X)[:, :, -pad-1, None]
+		Vh = self.V(ht_enc)
+
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
 
 		if test:

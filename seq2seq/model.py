@@ -191,6 +191,41 @@ class Seq2SeqModel(Chain):
 
 		return Y
 
+	def _forward_decoder_one_layer_one_step(self, layer_index, in_data, encoder_hidden_state, test=False):
+		if test:
+			in_data.unchain_backward()
+		decoder = self.get_decoder(layer_index)
+		out_data = decoder.forward_one_step(in_data, encoder_hidden_state, test=test)
+		if test:
+			out_data.unchain_backward()
+		return out_data
+
+	def decode_one_step(self, X, last_hidden_states, test=False):
+		assert len(last_hidden_states) == self.num_layers
+		batchsize = X.shape[0]
+		seq_length = X.shape[1]
+		ksize = self.kernel_size
+
+		if seq_length < ksize:
+			self.reset_state()
+			return self.decode(X, last_hidden_states, test=test)
+
+		xt = X[:, -ksize:]
+		enmbedding = self.decoder_embed(xt)
+		enmbedding = F.swapaxes(enmbedding, 1, 2)
+
+		out_data = self._forward_decoder_one_layer_one_step(0, enmbedding, last_hidden_states[0], test=test)
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_decoder_one_layer_one_step(layer_index, out_data, last_hidden_states[layer_index], test=test)
+
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		Y = self.dense(out_data)
+
+		if test:
+			Y.unchain_backward()
+
+		return Y
+
 class AttentiveSeq2SeqModel(Chain):
 	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
 		super(AttentiveSeq2SeqModel, self).__init__(

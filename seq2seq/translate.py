@@ -60,7 +60,8 @@ def make_buckets(dataset):
 		buckets.append(np.asarray(bucket_source).astype(np.int32))
 	return buckets
 
-def translate(model, buckets, vocab_inv_source, vocab_inv_target):
+# debug
+def _translate(model, buckets, vocab_inv_source, vocab_inv_target):
 	for bucket in buckets:
 		batch = bucket[:10]
 		skip_mask = batch != ID_PAD
@@ -109,8 +110,7 @@ def translate(model, buckets, vocab_inv_source, vocab_inv_target):
 			x = np.asarray([[token]]).astype(np.int32)
 			encoder_hidden_states = model.encode(batch[None, n, :], skip_mask[None, n, :], test=True)
 			while token != ID_EOS and x.shape[1] < 50:
-				model.reset_decoder_state()
-				u = model.decode(x, encoder_hidden_states, test=True)
+				u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]
 				p = F.softmax(u).data[-1]
 				token = np.random.choice(word_ids, size=1, p=p)
 				x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
@@ -135,7 +135,7 @@ def translate(model, buckets, vocab_inv_source, vocab_inv_target):
 				word = vocab_inv_target[token]
 				sentence.append(word)
 			print("target:", " ".join(sentence))
-			
+
 def main(args):
 	# load vocab
 	vocab, vocab_inv = load_vocab(args.model_dir)
@@ -161,10 +161,11 @@ def main(args):
 	model = load_model(args.model_dir)
 	assert model is not None
 
-	np.random.seed(0)
+	# np.random.seed(0) # debug
 	translate(model, source_buckets, vocab_inv_source, vocab_inv_target)
-	np.random.seed(0)
-	_translate(model, source_buckets, vocab_inv_source, vocab_inv_target)
+
+	# np.random.seed(0) # debug
+	# _translate(model, source_buckets, vocab_inv_source, vocab_inv_target)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
