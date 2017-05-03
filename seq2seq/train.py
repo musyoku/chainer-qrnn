@@ -10,7 +10,7 @@ from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
-from model import Seq2Seq, load_model, save_model, save_vocab
+from model import seq2seq, load_model, save_model, save_vocab
 
 class stdout:
 	BOLD = "\033[1m"
@@ -152,8 +152,9 @@ def make_buckets(source, target):
 	return buckets_source, buckets_target
 
 def sample_batch_from_bucket(source_bucket, target_bucket, num_samples):
-	num_samples = num_samples if len(bucket) >= num_samples else len(bucket)
-	indices = np.random.choice(np.arange(len(bucket), dtype=np.int32), size=num_samples, replace=False)
+	assert len(source_bucket) == len(target_bucket)
+	num_samples = num_samples if len(source_bucket) >= num_samples else len(source_bucket)
+	indices = np.random.choice(np.arange(len(source_bucket), dtype=np.int32), size=num_samples, replace=False)
 	return source_bucket[indices], target_bucket[indices]
 
 def make_source_target_pair(batch):
@@ -289,7 +290,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = Seq2Seq(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
+		model = seq2seq(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=False)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -304,31 +305,57 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 
 	# training
-	num_iteration = len(train_dataset) // args.batchsize
+	num_iteration = len(source_dataset) // args.batchsize
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
 			for repeat, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
 				for r in xrange(repeat):
+					# sample minibatch
 					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
 					skip_mask = source_batch != ID_PAD
-					print(skip_mask)
-					source, target = make_source_target_pair(batch)
+					target_batch_input, target_batch_output = make_source_target_pair(target_batch)
+
+					# to gpu
 					if model.xp is cuda.cupy:
-						source = cuda.to_gpu(source)
-						target = cuda.to_gpu(target)
+						skip_mask = cuda.to_gpu(skip_mask)
+						source_batch = cuda.to_gpu(source_batch)
+						target_batch_input = cuda.to_gpu(target_batch_input)
+						target_batch_output = cuda.to_gpu(target_batch_output)
+
+					# compute loss
 					model.reset_state()
-					Y = model(source)
-					loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
+					encoder_hidden_states = model.encode(source_batch, skip_mask)
+					Y = model.decode(target_batch_input, encoder_hidden_states)
+					loss = F.softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
 				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 				sys.stdout.flush()
 
 			if itr % args.interval == 0:
-				print("\raccuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets, args.batchsize), compute_accuracy(model, validation_buckets, args.batchsize)))
-				print("\rppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets, args.batchsize), compute_perplexity(model, validation_buckets, args.batchsize)))
-				save_model(args.model_dir, model)
+				model.to_cpu()
+				for _, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
+					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
+					skip_mask = source_batch != ID_PAD
+					word_ids = np.arange(0, vocab_size, dtype=np.int32)
+					token = ID_GO
+					for n in xrange(len(source_batch)):
+						model.reset_state()
+						x = np.asarray([[token]]).astype(np.int32)
+						encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :])
+						while token != ID_EOS and x.shape[1] < 50:
+							model.reset_decoder_state()
+							u = model.decode(x, encoder_hidden_states, test=True)
+							p = F.softmax(u).data[-1]
+							token = np.random.choice(word_ids, size=1, p=p)
+							x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
+						sentence = []
+						for token in x[0]:
+							word = vocab_inv[token]
+							sentence.append(word)
+						print(" ".join(sentence))
+				model.to_gpu()
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

@@ -35,7 +35,7 @@ def load_vocab(dirname):
 
 	return vocab, vocab_inv
 
-def save_model(dirname, qrnn):
+def save_model(dirname, model):
 	model_filename = dirname + "/model.hdf5"
 	param_filename = dirname + "/params.json"
 
@@ -46,17 +46,18 @@ def save_model(dirname, qrnn):
 
 	if os.path.isfile(model_filename):
 		os.remove(model_filename)
-	serializers.save_hdf5(model_filename, qrnn)
+	serializers.save_hdf5(model_filename, model)
 
 	params = {
-		"vocab_size": qrnn.vocab_size,
-		"ndim_embedding": qrnn.ndim_embedding,
-		"ndim_h": qrnn.ndim_h,
-		"num_layers": qrnn.num_layers,
-		"kernel_size": qrnn.kernel_size,
-		"pooling": qrnn.pooling,
-		"zoneout": qrnn.zoneout,
-		"wstd": qrnn.wstd,
+		"vocab_size": model.vocab_size,
+		"ndim_embedding": model.ndim_embedding,
+		"ndim_h": model.ndim_h,
+		"num_layers": model.num_layers,
+		"kernel_size": model.kernel_size,
+		"pooling": model.pooling,
+		"zoneout": model.zoneout,
+		"wstd": model.wstd,
+		"attention": isinstance(model, AttentiveSeq2SeqModel),
 	}
 	with open(param_filename, "w") as f:
 		json.dump(params, f, indent=4, sort_keys=True, separators=(',', ': '))
@@ -73,19 +74,25 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = QRNN(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"])
+		model = seq2seq(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["attention"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
-			serializers.load_hdf5(model_filename, qrnn)
+			serializers.load_hdf5(model_filename, model)
 
-		return qrnn
+		return model
 	else:
 		return None
 
-class Seq2Seq(Chain):
+def seq2seq(vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, attention=False):
+	if attention:
+		pass
+	return Seq2SeqModel(vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size, pooling, zoneout, wstd)
+
+
+class Seq2SeqModel(Chain):
 	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
-		super(QRNN, self).__init__(
+		super(Seq2SeqModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0),
 			dense=L.Linear(ndim_h, vocab_size),
 		)
@@ -107,22 +114,30 @@ class Seq2Seq(Chain):
 		for i in xrange(num_layers - 1):
 			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
 
-	def encoder(self, index):
+	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
 
-	def decoder(self, index):
+	def get_decoder(self, index):
 		return getattr(self, "dec{}".format(index))
 
 	def reset_state(self):
 		for i in xrange(self.num_layers):
-			self.encoder(i).reset_state()
-			self.decoder(i).reset_state()
+			self.get_encoder(i).reset_state()
+			self.get_decoder(i).reset_state()
+
+	def reset_encoder_state(self):
+		for i in xrange(self.num_layers):
+			self.get_encoder(i).reset_state()
+
+	def reset_decoder_state(self):
+		for i in xrange(self.num_layers):
+			self.get_decoder(i).reset_state()
 
 	def _forward_encoder_one_layer(self, layer_index, in_data, skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
-		encoder = self.encoder(layer_index, skip_mask=skip_mask)
-		out_data = encoder(in_data, test=test)
+		encoder = self.get_encoder(layer_index)
+		out_data = encoder(in_data, skip_mask=skip_mask, test=test)
 		if test:
 			out_data.unchain_backward()
 		return out_data
@@ -130,7 +145,7 @@ class Seq2Seq(Chain):
 	def _forward_decoder_one_layer(self, layer_index, in_data, encoder_hidden_state, test=False):
 		if test:
 			in_data.unchain_backward()
-		decoder = self.decoder(layer_index, skip_mask=skip_mask)
+		decoder = self.get_decoder(layer_index)
 		out_data = decoder(in_data, encoder_hidden_state, test=test)
 		if test:
 			out_data.unchain_backward()
@@ -151,13 +166,17 @@ class Seq2Seq(Chain):
 
 		last_hidden_states = []
 		for layer_index in xrange(0, self.num_layers):
-			encoder = self.encoder(layer_index)
+			encoder = self.get_encoder(layer_index)
 			last_hidden_states.append(encoder.get_last_hidden_state())
 
 		return last_hidden_states
 
 	def decode(self, X, last_hidden_states, test=False):
 		assert len(last_hidden_states) == self.num_layers
+		batchsize = X.shape[0]
+		seq_length = X.shape[1]
+		enmbedding = self.embed(X)
+		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_decoder_one_layer(0, enmbedding, last_hidden_states[0], test=test)
 		for layer_index in xrange(1, self.num_layers):
@@ -171,9 +190,9 @@ class Seq2Seq(Chain):
 
 		return Y
 
-class AttentiveSeq2Seq(Chain):
+class AttentiveSeq2SeqModel(Chain):
 	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
-		super(QRNN, self).__init__(
+		super(AttentiveSeq2SeqModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0)
 		)
 		assert num_layers > 0
@@ -198,21 +217,21 @@ class AttentiveSeq2Seq(Chain):
 				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
 			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=kernel_size, zoneout=zoneout, wstd=wstd))
 
-	def encoder(self, index):
+	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
 
-	def decoder(self, index):
+	def get_decoder(self, index):
 		return getattr(self, "dec{}".format(index))
 
 	def reset_state(self):
 		for i in xrange(self.num_layers):
-			self.encoder(i).reset_state()
-			self.decoder(i).reset_state()
+			self.get_encoder(i).reset_state()
+			self.get_decoder(i).reset_state()
 
 	def _forward_encoder_one_layer(self, layer_index, in_data, skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
-		encoder = self.encoder(layer_index, skip_mask=skip_mask)
+		encoder = self.get_encoder(layer_index, skip_mask=skip_mask)
 		out_data = encoder(in_data, test=test)
 		if test:
 			out_data.unchain_backward()

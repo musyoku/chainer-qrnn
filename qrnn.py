@@ -218,14 +218,13 @@ class QRNNEncoder(QRNN):
 	pass
 
 class QRNNDecoder(QRNN):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1):
-		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio)
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wstd=1):
+		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio, wstd=wstd)
 		self.num_split = len(pooling) + 1
 		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels))
 
 	# ht_enc is the last encoder state
 	def __call__(self, X, ht_enc, test=False):
-		assert isinstance(X, Variable)
 		self._test = test
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, :-pad]
@@ -255,8 +254,8 @@ class QRNNDecoder(QRNN):
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):
-	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1):
-		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio)
+	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wstd=1):
+		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio, wstd=wstd)
 		self.add_link('o', links.Linear(2 * out_channels, out_channels))
 
 	# X is the input of the decoder
