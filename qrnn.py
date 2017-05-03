@@ -218,7 +218,7 @@ class QRNNEncoder(QRNN):
 	pass
 
 class QRNNDecoder(QRNN):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.5):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1):
 		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio)
 		self.num_split = len(pooling) + 1
 		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels))
@@ -255,7 +255,7 @@ class QRNNDecoder(QRNN):
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):
-	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.5):
+	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1):
 		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio)
 		self.add_link('o', links.Linear(2 * out_channels, out_channels))
 

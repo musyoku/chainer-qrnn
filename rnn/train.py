@@ -234,7 +234,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = QRNN(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd)
+		model = QRNN(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, densely_connected=args.densely_connected)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -275,7 +275,7 @@ def main(args):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--batchsize", "-b", type=int, default=50)
+	parser.add_argument("--batchsize", "-b", type=int, default=24)
 	parser.add_argument("--epoch", "-e", type=int, default=30)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
@@ -286,8 +286,9 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wstd", "-w", type=float, default=1)
-	parser.add_argument("--text-filename", "-f", default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
+	parser.add_argument("--text-filename", "-f", default=None)
+	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
 	args = parser.parse_args()
