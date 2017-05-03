@@ -62,10 +62,13 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 
 	target_dataset = []
 	with codecs.open(target_filename, "r", "utf-8") as f:
+		i = 0
 		new_word_id = ID_GO + 1
 		for sentence in f:
+			i += 1
 			sentence = sentence.strip()
 			if len(sentence) == 0:
+				print(i)
 				continue
 			word_ids = [ID_GO]
 			words = sentence.split(" ")
