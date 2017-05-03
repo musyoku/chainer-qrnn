@@ -29,7 +29,7 @@ ID_UNK = 1
 ID_EOS = 2
 ID_GO = 3
 
-def read_data(source_filename, target_filename, train_split_ratio=0.1, dev_split_ratio=0.85, seed=0, reverse=True):
+def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0, reverse=True):
 	assert(train_split_ratio + dev_split_ratio <= 1)
 	vocab_source = {
 		"<pad>": ID_PAD,
@@ -268,7 +268,7 @@ def compute_minibatch_perplexity(model, buckets, batchsize=100):
 
 def main(args):
 	# load textfile
-	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename)
+	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
@@ -377,9 +377,8 @@ def main(args):
 						token = ID_GO
 						x = np.asarray([[token]]).astype(np.int32)
 						encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
-						while token != ID_EOS and x.shape[1] < 50:
-							model.reset_decoder_state()
-							u = model.decode(x, encoder_hidden_states, test=True)
+						while token != ID_EOS and x.shape[1] < 30:
+							u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]
 							p = F.softmax(u).data[-1]
 							# token = np.random.choice(word_ids, size=1, p=p)
 							token = [np.argmax(p)]
@@ -392,17 +391,19 @@ def main(args):
 							word = vocab_inv_source[token]
 							sentence.append(word)
 						sentence.reverse()
-						print("source:", " ".join(sentence))
+						print("source:	", " ".join(sentence))
 
 						sentence = []
 						for token in target_batch[n, :]:
 							if token == ID_PAD:
-								continue
+								break
+							if token == ID_EOS:
+								break
 							if token == ID_GO:
 								continue
 							word = vocab_inv_target[token]
 							sentence.append(word)
-						print("target:", " ".join(sentence))
+						print("target:	", " ".join(sentence))
 
 						sentence = []
 						for token in x[0]:
@@ -433,6 +434,8 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wstd", "-w", type=float, default=0.02)
+	parser.add_argument("--train-split", type=float, default=0.9)
+	parser.add_argument("--dev-split", type=float, default=0.05)
 	parser.add_argument("--source-filename", "-source", default=None)
 	parser.add_argument("--target-filename", "-target", default=None)
 	parser.add_argument("--buckets-limit", type=int, default=None)

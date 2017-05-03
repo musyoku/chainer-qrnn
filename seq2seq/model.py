@@ -102,8 +102,8 @@ class Seq2SeqModel(Chain):
 		self.num_layers = num_layers
 		self.ndim_h = ndim_h
 		self.kernel_size_encoder_first = 6
-		self.kernel_size_encoder_other = 2
-		self.kernel_size_decoder_first = 4
+		self.kernel_size_encoder_other = 4
+		self.kernel_size_decoder_first = 6
 		self.kernel_size_decoder_other = 4
 		self.pooling = pooling
 		self.zoneout = zoneout
@@ -185,7 +185,7 @@ class Seq2SeqModel(Chain):
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_decoder_one_layer(layer_index, out_data, last_hidden_states[layer_index], test=test)
 
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
 		if test:
@@ -219,7 +219,7 @@ class Seq2SeqModel(Chain):
 		ksize = self.kernel_size_decoder_other
 		out_data = self._forward_decoder_one_layer_one_step(0, enmbedding, last_hidden_states[0], test=test)
 		if ksize != self.kernel_size_decoder_first:
-			out_data = out_data[:, -ksize:]
+			out_data = out_data[:, :, -ksize:]
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_decoder_one_layer_one_step(layer_index, out_data, last_hidden_states[layer_index], test=test)
 
