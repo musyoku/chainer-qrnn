@@ -144,6 +144,83 @@ def translate(model, buckets, vocab_inv_source, vocab_inv_target, batchsize=100)
 					sentence.append(word)
 				print("target:", " ".join(sentence))
 
+def translate_random_batch(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=100, argmax=True):
+	xp = model.xp
+	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
+		# sample minibatch
+		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, num_translate)
+		skip_mask = source_batch != ID_PAD
+
+		# to gpu
+		if xp is cuda.cupy:
+			source_batch = cuda.to_gpu(source_batch)
+			target_batch = cuda.to_gpu(target_batch)
+			skip_mask = cuda.to_gpu(skip_mask)
+
+		target_seq_length = target_batch.shape[1]
+		word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
+
+		for n in xrange(len(source_batch)):
+			# reset
+			model.reset_state()
+			token = ID_GO
+			x = xp.asarray([[token]]).astype(xp.int32)
+
+			# get encoder's last hidden states
+			encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
+
+			# decode step by step
+			while token != ID_EOS and x.shape[1] < target_seq_length:
+				u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]	# take the output vector at the last time
+				p = F.softmax(u).data[-1]	# convert to probability
+
+				# argmax or sampling
+				if argmax:
+					token = [xp.argmax(p)]
+				else:
+					token = xp.random.choice(word_ids, size=1, p=p)
+
+				# concatenate
+				if xp is np:
+					x = xp.append(x, xp.asarray([token]).astype(xp.int32), axis=1)
+				else:
+					a = cuda.to_gpu(np.asarray([token]).astype(np.int32))	# hack
+					x = xp.concatenate((x, a), axis=1)
+
+			sentence = []
+			for token in source_batch[n, :]:
+				token = int(token)	# to cpu
+				if token == ID_PAD:
+					continue
+				word = vocab_inv_source[token]
+				sentence.append(word)
+			sentence.reverse()
+			print(">source: ", " ".join(sentence))
+
+			sentence = []
+			for token in target_batch[n, :]:
+				token = int(token)	# to cpu
+				if token == ID_PAD:
+					break
+				if token == ID_EOS:
+					break
+				if token == ID_GO:
+					continue
+				word = vocab_inv_target[token]
+				sentence.append(word)
+			print(" target: ", " ".join(sentence))
+
+			sentence = []
+			for token in x[0]:
+				token = int(token)	# to cpu
+				if token == ID_EOS:
+					break
+				if token == ID_GO:
+					continue
+				word = vocab_inv_target[token]
+				sentence.append(word)
+			print(" predict:", " ".join(sentence))
+
 def main(args):
 	# load vocab
 	vocab, vocab_inv = load_vocab(args.model_dir)
