@@ -9,9 +9,9 @@ import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
-from eve import Eve
 from model import seq2seq, load_model, load_vocab
-from train import stdout, print_bold, bucket_sizes, ID_PAD, ID_UNK, ID_EOS, ID_GO
+from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
+from dataset import sample_batch_from_bucket
 
 def read_data(source_filename, vocab_source, reverse=True):
 	source_dataset = []
