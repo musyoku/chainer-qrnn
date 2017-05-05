@@ -174,7 +174,7 @@ class Seq2SeqModel(Chain):
 
 		return last_hidden_states
 
-	def decode(self, X, encoder_last_hidden_states, test=False):
+	def decode(self, X, encoder_last_hidden_states, test=False, return_last=False):
 		assert len(encoder_last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
@@ -184,6 +184,9 @@ class Seq2SeqModel(Chain):
 		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], test=test)
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], test=test)
+
+		if return_last:
+			out_data = out_data[:, :, -1, None]
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -210,7 +213,7 @@ class Seq2SeqModel(Chain):
 
 		if seq_length < ksize:
 			self.reset_state()
-			return self.decode(X, encoder_last_hidden_states, test=test)
+			return self.decode(X, encoder_last_hidden_states, test=test, return_last=True)
 
 		xt = X[:, -ksize:]
 		enmbedding = self.decoder_embed(xt)
@@ -223,7 +226,8 @@ class Seq2SeqModel(Chain):
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_decoder_layer_one_step(layer_index, out_data, encoder_last_hidden_states[layer_index], test=test)
 
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		out_data = out_data[:, :, -1, None]
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
 		if test:
@@ -314,13 +318,13 @@ class AttentiveSeq2SeqModel(Chain):
 
 		return last_hidden_states, last_layer_outputs
 
-	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask=None, test=False):
+	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
 
 		decoder = self.get_decoder(layer_index)
 		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
-			out_data = decoder(in_data, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=test)
+			out_data = decoder(in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask, test=test)
 		elif isinstance(decoder, L.QRNNDecoder):
 			out_data = decoder(in_data, encoder_last_hidden_states, test=test)
 		else:
@@ -331,18 +335,68 @@ class AttentiveSeq2SeqModel(Chain):
 
 		return out_data
 
-	def decode(self, X, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask=None, test=False):
+	def decode(self, X, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None, test=False, return_last=False):
 		assert len(encoder_last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		enmbedding = self.decoder_embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], encoder_last_layer_outputs, skip_mask, test=test)
+		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], encoder_last_layer_outputs, encoder_skip_mask, test=test)
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, skip_mask, test=test)
+			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+
+		if return_last:
+			out_data = out_data[:, :, -1, None]
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
+		Y = self.dense(out_data)
+
+		if test:
+			Y.unchain_backward()
+
+		return Y
+
+	def _forward_decoder_layer_one_step(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None, test=False):
+		if test:
+			in_data.unchain_backward()
+
+		decoder = self.get_decoder(layer_index)
+		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
+			out_data = decoder.forward_one_step(in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask, test=test)
+		elif isinstance(decoder, L.QRNNDecoder):
+			out_data = decoder.forward_one_step(in_data, encoder_last_hidden_states, test=test)
+		else:
+			raise Exception()
+
+		if test:
+			out_data.unchain_backward()
+
+		return out_data
+
+	def decode_one_step(self, X, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None, test=False):
+		assert len(encoder_last_hidden_states) == self.num_layers
+		batchsize = X.shape[0]
+		seq_length = X.shape[1]
+		ksize = self.kernel_size_decoder_first
+
+		if seq_length < ksize:
+			self.reset_state()
+			return self.decode(X, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask, test=test, return_last=True)
+
+		xt = X[:, -ksize:]
+		enmbedding = self.decoder_embed(xt)
+		enmbedding = F.swapaxes(enmbedding, 1, 2)
+
+		ksize = self.kernel_size_decoder_other
+		out_data = self._forward_decoder_layer_one_step(0, enmbedding, encoder_last_hidden_states[0], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+		if ksize != self.kernel_size_decoder_first:
+			out_data = out_data[:, :, -ksize:]
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_decoder_layer_one_step(layer_index, out_data, encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+
+		out_data = out_data[:, :, -1, None]
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize, self.ndim_h))
 		Y = self.dense(out_data)
 
 		if test:
