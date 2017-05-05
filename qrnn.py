@@ -196,8 +196,7 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 	# X is the input of the decoder
 	# ht_enc is the last encoder state
 	# H_enc is the encoder's las layer's hidden sates
-	def __call__(self, X, ht_enc, H_enc, test=False):
-		assert isinstance(X, Variable)
+	def __call__(self, X, ht_enc, H_enc, skip_mask=None, test=False):
 		self._test = test
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, :-pad]
@@ -223,19 +222,31 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 				ct = f * contexts[-1] + (1 - f) * z
 				contexts.append(ct)
 
+		if skip_mask is not None:
+			softmax_getas = (skip_mask == 0) * -1e6
+
 		# compute attention weights (eq.8)
 		H_enc = functions.swapaxes(H_enc, 1, 2)
 		for t in xrange(T):
 			ct = contexts[t]
 			h = H_enc[:, :t+1, :]
-			alpha = functions.batch_matmul(h, ct)
-			alpha = functions.softmax(alpha)
+			geta = 1 if skip_mask is None else softmax_getas[:, :t+1, None]	# to skip PAD
+			mask = 1 if skip_mask is None else skip_mask[:, :t+1, None]		# to skip PAD
+			xt = 1 if skip_mask is None else skip_mask[:, t, None]			# to skip PAD
+			alpha = functions.batch_matmul(h, ct) + geta
+			alpha = functions.softmax(alpha) * mask
+			print(alpha.data)
 			h, alpha = functions.broadcast(h, alpha)	# copy alpha
 			kt = functions.sum(alpha * h, axis=1)
 			ot = O[:, :, t]
-			self.ht = ot * self.o(functions.concat((kt, ct), axis=1))
+			self.ht = ot * self.o(functions.concat((kt, ct), axis=1)) * xt
+
+			if test:
+				self.ht.unchain_backward()
+
 			if t == 0:
 				self.H = functions.expand_dims(self.ht, 2)
 			else:
 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
+
 		return self.H
