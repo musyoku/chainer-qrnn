@@ -2,6 +2,7 @@
 import numpy as np
 import chainer.functions as F
 from chainer import cuda
+from model import Seq2SeqModel, AttentiveSeq2SeqModel
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes
 from dataset import sample_batch_from_bucket
 
@@ -24,47 +25,58 @@ def compute_word_error_rate_of_sequence(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def _compute_batch_wer_mean(model, source_batch, target_batch, vocab_size, argmax=True):
+def _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=True):
 	xp = model.xp
 	num_calculation = 0
 	sum_wer = 0
 	skip_mask = source_batch != ID_PAD
+	batchsize = source_batch.shape[0]
+	target_seq_length = target_batch.shape[1]
+
 	# to gpu
 	if xp is cuda.cupy:
 		source_batch = cuda.to_gpu(source_batch)
 		target_batch = cuda.to_gpu(target_batch)
 		skip_mask = cuda.to_gpu(skip_mask)
 
-	target_seq_length = target_batch.shape[1]
-	word_ids = xp.arange(0, vocab_size, dtype=xp.int32)
+	word_ids = xp.arange(0, target_vocab_size, dtype=xp.int32)
 
-	for n in xrange(len(source_batch)):
-		# reset
-		model.reset_state()
-		token = ID_GO
-		x = xp.asarray([[token]]).astype(xp.int32)
+	model.reset_state()
+	token = ID_GO
+	x = xp.asarray([[token]]).astype(xp.int32)
+	x = xp.broadcast_to(x, (batchsize, 1))
 
-		# get encoder's last hidden states
-		encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
+	# get encoder's last hidden states
+	if isinstance(model, AttentiveSeq2SeqModel):
+		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
+	else:
+		encoder_last_hidden_states = model.encode(source_batch, skip_mask, test=True)
 
-		# decode step by step
-		while token != ID_EOS and x.shape[1] < target_seq_length:
-			u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]	# take the output vector at the last time
-			p = F.softmax(u).data[-1]	# convert to probability
+	while x.shape[1] < target_seq_length * 2:
+		if isinstance(model, AttentiveSeq2SeqModel):
+			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True)
+		else:
+			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
+		p = F.softmax(u)	# convert to probability
+
+		# concatenate
+		if xp is np:
+			x = xp.append(x, xp.zeros((batchsize, 1), dtype=xp.int32), axis=1)
+		else:
+			x = xp.concatenate((x, xp.zeros((batchsize, 1), dtype=xp.int32)), axis=1)
+
+		for n in xrange(batchsize):
+			pn = p.data[n]
 
 			# argmax or sampling
 			if argmax:
-				token = [xp.argmax(p)]
+				token = xp.argmax(pn)
 			else:
-				token = xp.random.choice(word_ids, size=1, p=p)
+				token = xp.random.choice(word_ids, size=1, p=pn)[0]
 
-			# concatenate
-			if xp is np:
-				x = xp.append(x, xp.asarray([token]).astype(xp.int32), axis=1)
-			else:
-				a = cuda.to_gpu(np.asarray([token]).astype(np.int32))	# hack
-				x = xp.concatenate((x, a), axis=1)
+			x[n, -1] = token
 
+	for n in xrange(batchsize):
 		target_tokens = []
 		for token in target_batch[n, :]:
 			token = int(token)	# to cpu
@@ -77,9 +89,11 @@ def _compute_batch_wer_mean(model, source_batch, target_batch, vocab_size, argma
 			target_tokens.append(token)
 
 		predict_tokens = []
-		for token in x[0]:
+		for token in x[n]:
 			token = int(token)	# to cpu
 			if token == ID_EOS:
+				break
+			if token == ID_PAD:
 				break
 			if token == ID_GO:
 				continue
@@ -88,10 +102,83 @@ def _compute_batch_wer_mean(model, source_batch, target_batch, vocab_size, argma
 		wer = compute_word_error_rate_of_sequence(target_tokens, predict_tokens)
 		sum_wer += wer
 		num_calculation += 1
+
 	return sum_wer / num_calculation
 
-def compute_mean_wer(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, batchsize=100, argmax=True):
-	xp = model.xp
+	# xp = model.xp
+	# num_calculation = 0
+	# sum_wer = 0
+	# skip_mask = source_batch != ID_PAD
+	# # to gpu
+	# if xp is cuda.cupy:
+	# 	source_batch = cuda.to_gpu(source_batch)
+	# 	target_batch = cuda.to_gpu(target_batch)
+	# 	skip_mask = cuda.to_gpu(skip_mask)
+
+	# target_seq_length = target_batch.shape[1]
+	# word_ids = xp.arange(0, target_vocab_size, dtype=xp.int32)
+
+	# for n in xrange(len(source_batch)):
+	# 	# reset
+	# 	model.reset_state()
+	# 	token = ID_GO
+	# 	x = xp.asarray([[token]]).astype(xp.int32)
+
+	# 	# get encoder's last hidden states
+	# 	if isinstance(model, AttentiveSeq2SeqModel):
+	# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
+	# 	else:
+	# 		encoder_last_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
+
+	# 	# decode step by step
+	# 	while token != ID_EOS and x.shape[1] < target_seq_length:
+	# 		if isinstance(model, AttentiveSeq2SeqModel):
+	# 			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask[None, n, :], test=True)
+	# 		else:
+	# 			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
+	# 		p = F.softmax(u).data[0]	# convert to probability
+
+	# 		# argmax or sampling
+	# 		if argmax:
+	# 			token = [xp.argmax(p)]
+	# 		else:
+	# 			token = xp.random.choice(word_ids, size=1, p=p)
+
+	# 		# concatenate
+	# 		if xp is np:
+	# 			x = xp.append(x, xp.asarray([token]).astype(xp.int32), axis=1)
+	# 		else:
+	# 			a = cuda.to_gpu(np.asarray([token]).astype(np.int32))	# hack
+	# 			x = xp.concatenate((x, a), axis=1)
+
+	# 	target_tokens = []
+	# 	for token in target_batch[n, :]:
+	# 		token = int(token)	# to cpu
+	# 		if token == ID_PAD:
+	# 			break
+	# 		if token == ID_EOS:
+	# 			break
+	# 		if token == ID_GO:
+	# 			continue
+	# 		target_tokens.append(token)
+
+	# 	predict_tokens = []
+	# 	for token in x[0]:
+	# 		token = int(token)	# to cpu
+	# 		if token == ID_EOS:
+	# 			break
+	# 		if token == ID_PAD:
+	# 			break
+	# 		if token == ID_GO:
+	# 			continue
+	# 		predict_tokens.append(token)
+
+	# 	wer = compute_word_error_rate_of_sequence(target_tokens, predict_tokens)
+	# 	sum_wer += wer
+	# 	num_calculation += 1
+	# return sum_wer / num_calculation
+
+def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, batchsize=100, argmax=True):
 	result = []
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
 		num_calculation = 0
@@ -108,8 +195,9 @@ def compute_mean_wer(model, source_buckets, target_buckets, vocab_inv_source, vo
 			source_sections = [source_bucket]
 			target_sections = [target_bucket]
 
+
 		for source_batch, target_batch in zip(source_sections, target_sections):
-			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, len(vocab_inv_target), argmax=argmax)
+			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=argmax)
 			sum_wer += mean_wer
 			num_calculation += 1
 
@@ -117,7 +205,7 @@ def compute_mean_wer(model, source_buckets, target_buckets, vocab_inv_source, vo
 
 	return result
 
-def compute_random_mean_wer(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, sample_size=100, argmax=True):
+def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_size, sample_size=100, argmax=True):
 	xp = model.xp
 	result = []
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
@@ -125,7 +213,7 @@ def compute_random_mean_wer(model, source_buckets, target_buckets, vocab_inv_sou
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, sample_size)
 		
 		# compute WER
-		mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, len(vocab_inv_target), argmax=argmax)
+		mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=argmax)
 
 		result.append(mean_wer * 100)
 

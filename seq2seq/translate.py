@@ -9,7 +9,7 @@ import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
-from model import seq2seq, load_model, load_vocab
+from model import load_model, load_vocab, Seq2SeqModel, AttentiveSeq2SeqModel
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import sample_batch_from_bucket
 
@@ -60,166 +60,202 @@ def make_buckets(dataset):
 		buckets.append(np.asarray(bucket_source).astype(np.int32))
 	return buckets
 
-# debug
-def _translate(model, buckets, vocab_inv_source, vocab_inv_target):
-	for bucket in buckets:
-		batch = bucket[:10]
-		skip_mask = batch != ID_PAD
-		word_ids = np.arange(0, len(vocab_inv_target), dtype=np.int32)
-		for n in xrange(len(batch)):
-			model.reset_state()
-			token = ID_GO
-			x = np.asarray([[token]]).astype(np.int32)
-			encoder_hidden_states = model.encode(batch[None, n, :], skip_mask[None, n, :], test=True)
-			while token != ID_EOS and x.shape[1] < 50:
-				model.reset_decoder_state()
-				u = model.decode(x, encoder_hidden_states, test=True)
-				p = F.softmax(u).data[-1]
-				token = np.random.choice(word_ids, size=1, p=p)
-				x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
+def _translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_inv_target, argmax=True, source_reversed=True):
+	xp = model.xp
+	skip_mask = source_batch != ID_PAD
+	batchsize = source_batch.shape[0]
+	target_seq_length = target_batch.shape[1]
 
-			sentence = []
-			for token in batch[n, :]:
-				if token == ID_PAD:
-					continue
-				word = vocab_inv_source[token]
-				sentence.append(word)
+	# to gpu
+	if xp is cuda.cupy:
+		source_batch = cuda.to_gpu(source_batch)
+		target_batch = cuda.to_gpu(target_batch)
+		skip_mask = cuda.to_gpu(skip_mask)
+
+	word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
+
+	model.reset_state()
+	token = ID_GO
+	x = xp.asarray([[token]]).astype(xp.int32)
+	x = xp.broadcast_to(x, (batchsize, 1))
+
+	# get encoder's last hidden states
+	if isinstance(model, AttentiveSeq2SeqModel):
+		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
+	else:
+		encoder_last_hidden_states = model.encode(source_batch, skip_mask, test=True)
+
+	while x.shape[1] < target_seq_length * 2:
+		if isinstance(model, AttentiveSeq2SeqModel):
+			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True)
+		else:
+			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
+		p = F.softmax(u)	# convert to probability
+
+		# concatenate
+		if xp is np:
+			x = xp.append(x, xp.zeros((batchsize, 1), dtype=xp.int32), axis=1)
+		else:
+			x = xp.concatenate((x, xp.zeros((batchsize, 1), dtype=xp.int32)), axis=1)
+
+		for n in xrange(batchsize):
+			pn = p.data[n]
+
+			# argmax or sampling
+			if argmax:
+				token = xp.argmax(pn)
+			else:
+				token = xp.random.choice(word_ids, size=1, p=pn)[0]
+
+			x[n, -1] = token
+
+	for n in xrange(batchsize):
+		sentence = []
+		for token in source_batch[n]:
+			token = int(token)	# to cpu
+			if token == ID_PAD:
+				continue
+			word = vocab_inv_source[token]
+			sentence.append(word)
+		if source_reversed:
 			sentence.reverse()
-			print("source:", " ".join(sentence))
+		print(">source: ", " ".join(sentence))
 
-			sentence = []
-			for token in x[0]:
-				# if token == ID_EOS:
-				# 	break
-				# if token == ID_PAD:
-				# 	break
-				if token == ID_GO:
-					continue
-				word = vocab_inv_target[token]
-				sentence.append(word)
-			print("target:", " ".join(sentence))
+		sentence = []
+		for token in target_batch[n]:
+			token = int(token)	# to cpu
+			if token == ID_PAD:
+				break
+			if token == ID_EOS:
+				break
+			if token == ID_GO:
+				continue
+			word = vocab_inv_target[token]
+			sentence.append(word)
+		print(" target: ", " ".join(sentence))
 
-def translate(model, buckets, vocab_inv_source, vocab_inv_target, batchsize=100):
-	for bucket in buckets:
-		if len(bucket) > batchsize:
-			num_sections = len(bucket) // batchsize - 1
-			if len(bucket) % batchsize > 0:
+		sentence = []
+		for token in x[n]:
+			token = int(token)	# to cpu
+			if token == ID_EOS:
+				break
+			if token == ID_PAD:
+				break
+			if token == ID_GO:
+				continue
+			word = vocab_inv_target[token]
+			sentence.append(word)
+		print(" predict:", " ".join(sentence))
+
+	# return
+
+	# xp = model.xp
+	# skip_mask = source_batch != ID_PAD
+	# batchsize = source_batch.shape[0]
+	# target_seq_length = target_batch.shape[1]
+
+	# # to gpu
+	# if xp is cuda.cupy:
+	# 	source_batch = cuda.to_gpu(source_batch)
+	# 	target_batch = cuda.to_gpu(target_batch)
+	# 	skip_mask = cuda.to_gpu(skip_mask)
+
+	# word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
+	# for n in xrange(len(source_batch)):
+	# 	# reset
+	# 	model.reset_state()
+	# 	token = ID_GO
+	# 	x = xp.asarray([[token]]).astype(xp.int32)
+
+	# 	# get encoder's last hidden states
+	# 	if isinstance(model, AttentiveSeq2SeqModel):
+	# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
+	# 	else:
+	# 		encoder_last_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
+
+	# 	# decode step by step
+	# 	while token != ID_EOS and x.shape[1] < target_seq_length:
+	# 		if isinstance(model, AttentiveSeq2SeqModel):
+	# 			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask[None, n, :], test=True)
+	# 		else:
+	# 			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
+	# 		p = F.softmax(u).data[0]	# convert to probability
+
+	# 		# argmax or sampling
+	# 		if argmax:
+	# 			token = [xp.argmax(p)]
+	# 		else:
+	# 			token = xp.random.choice(word_ids, size=1, p=p)
+
+	# 		# concatenate
+	# 		if xp is np:
+	# 			x = xp.append(x, xp.asarray([token]).astype(xp.int32), axis=1)
+	# 		else:
+	# 			a = cuda.to_gpu(np.asarray([token]).astype(np.int32))	# hack
+	# 			x = xp.concatenate((x, a), axis=1)
+
+	# 	sentence = []
+	# 	for token in source_batch[n, :]:
+	# 		token = int(token)	# to cpu
+	# 		if token == ID_PAD:
+	# 			continue
+	# 		word = vocab_inv_source[token]
+	# 		sentence.append(word)
+	# 	if source_reversed:
+	# 		sentence.reverse()
+	# 	print(">source: ", " ".join(sentence))
+
+	# 	sentence = []
+	# 	for token in target_batch[n, :]:
+	# 		token = int(token)	# to cpu
+	# 		if token == ID_PAD:
+	# 			break
+	# 		if token == ID_EOS:
+	# 			break
+	# 		if token == ID_GO:
+	# 			continue
+	# 		word = vocab_inv_target[token]
+	# 		sentence.append(word)
+	# 	print(" target: ", " ".join(sentence))
+
+	# 	sentence = []
+	# 	for token in x[0]:
+	# 		token = int(token)	# to cpu
+	# 		if token == ID_EOS:
+	# 			break
+	# 		if token == ID_PAD:
+	# 			break
+	# 		if token == ID_GO:
+	# 			continue
+	# 		word = vocab_inv_target[token]
+	# 		sentence.append(word)
+	# 	print(" predict:", " ".join(sentence))
+
+def translate_all(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, batchsize=100):
+	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
+		num_calculation = 0
+		sum_wer = 0
+
+		if len(source_bucket) > batchsize:
+			num_sections = len(source_bucket) // batchsize - 1
+			if len(source_bucket) % batchsize > 0:
 				num_sections += 1
 			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
-			sections = np.split(bucket, indices, axis=0)
+			source_sections = np.split(source_bucket, indices, axis=0)
+			target_sections = np.split(target_bucket, indices, axis=0)
 		else:
-			sections = [bucket]
-		for batch in sections:
-			skip_mask = batch != ID_PAD
-			word_ids = np.arange(0, len(vocab_inv_target), dtype=np.int32)
-			for n in xrange(len(batch)):
-				model.reset_state()
-				token = ID_GO
-				x = np.asarray([[token]]).astype(np.int32)
-				encoder_hidden_states = model.encode(batch[None, n, :], skip_mask[None, n, :], test=True)
-				while token != ID_EOS and x.shape[1] < 50:
-					u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]
-					p = F.softmax(u).data[-1]
-					token = np.random.choice(word_ids, size=1, p=p)
-					x = np.append(x, np.asarray([token]).astype(np.int32), axis=1)
+			source_sections = [source_bucket]
+			target_sections = [target_bucket]
 
-				sentence = []
-				for token in batch[n, :]:
-					if token == ID_PAD:
-						continue
-					word = vocab_inv_source[token]
-					sentence.append(word)
-				sentence.reverse()
-				print("source:", " ".join(sentence))
+		for source_batch, target_batch in zip(source_sections, target_sections):
+			_translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_inv_target, argmax=argmax)
 
-				sentence = []
-				for token in x[0]:
-					# if token == ID_EOS:
-					# 	break
-					# if token == ID_PAD:
-					# 	break
-					if token == ID_GO:
-						continue
-					word = vocab_inv_target[token]
-					sentence.append(word)
-				print("target:", " ".join(sentence))
-
-def translate_random_batch(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=100, argmax=True):
+def translate_random(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=100, argmax=True):
 	xp = model.xp
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
 		# sample minibatch
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, num_translate)
-		skip_mask = source_batch != ID_PAD
-
-		# to gpu
-		if xp is cuda.cupy:
-			source_batch = cuda.to_gpu(source_batch)
-			target_batch = cuda.to_gpu(target_batch)
-			skip_mask = cuda.to_gpu(skip_mask)
-
-		target_seq_length = target_batch.shape[1]
-		word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
-
-		for n in xrange(len(source_batch)):
-			# reset
-			model.reset_state()
-			token = ID_GO
-			x = xp.asarray([[token]]).astype(xp.int32)
-
-			# get encoder's last hidden states
-			encoder_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
-
-			# decode step by step
-			while token != ID_EOS and x.shape[1] < target_seq_length:
-				u = model.decode_one_step(x, encoder_hidden_states, test=True)[None, -1]	# take the output vector at the last time
-				p = F.softmax(u).data[-1]	# convert to probability
-
-				# argmax or sampling
-				if argmax:
-					token = [xp.argmax(p)]
-				else:
-					token = xp.random.choice(word_ids, size=1, p=p)
-
-				# concatenate
-				if xp is np:
-					x = xp.append(x, xp.asarray([token]).astype(xp.int32), axis=1)
-				else:
-					a = cuda.to_gpu(np.asarray([token]).astype(np.int32))	# hack
-					x = xp.concatenate((x, a), axis=1)
-
-			sentence = []
-			for token in source_batch[n, :]:
-				token = int(token)	# to cpu
-				if token == ID_PAD:
-					continue
-				word = vocab_inv_source[token]
-				sentence.append(word)
-			sentence.reverse()
-			print(">source: ", " ".join(sentence))
-
-			sentence = []
-			for token in target_batch[n, :]:
-				token = int(token)	# to cpu
-				if token == ID_PAD:
-					break
-				if token == ID_EOS:
-					break
-				if token == ID_GO:
-					continue
-				word = vocab_inv_target[token]
-				sentence.append(word)
-			print(" target: ", " ".join(sentence))
-
-			sentence = []
-			for token in x[0]:
-				token = int(token)	# to cpu
-				if token == ID_EOS:
-					break
-				if token == ID_GO:
-					continue
-				word = vocab_inv_target[token]
-				sentence.append(word)
-			print(" predict:", " ".join(sentence))
+		_translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_inv_target, argmax=argmax)
 
 def main(args):
 	# load vocab
@@ -246,11 +282,7 @@ def main(args):
 	model = load_model(args.model_dir)
 	assert model is not None
 
-	# np.random.seed(0) # debug
-	translate(model, source_buckets, vocab_inv_source, vocab_inv_target)
-
-	# np.random.seed(0) # debug
-	# _translate(model, source_buckets, vocab_inv_source, vocab_inv_target)
+	translate_all(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

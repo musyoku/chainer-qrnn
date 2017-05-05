@@ -14,7 +14,7 @@ from dataset import read_data, make_buckets, make_source_target_pair, sample_bat
 from eve import Eve
 from model import seq2seq, load_model, save_model, save_vocab
 from error import compute_mean_wer, compute_random_mean_wer
-from translate import translate_random_batch
+from translate import translate_random
 
 # reference
 # https://www.tensorflow.org/tutorials/seq2seq
@@ -125,14 +125,14 @@ def main(args):
 				sys.stdout.write("\r" + stdout.CLEAR)
 				sys.stdout.flush()
 				print_bold("translate (train)")
-				translate_random_batch(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
+				translate_random(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
 				print_bold("translate (dev)")
-				translate_random_batch(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
+				translate_random(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
 				print_bold("WER (sampled train)")
-				wer_train = compute_random_mean_wer(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, sample_size=args.batchsize, argmax=True)
+				wer_train = compute_random_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), sample_size=args.batchsize, argmax=True)
 				print(wer_train)
 				print_bold("WER (dev)")
-				wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, batchsize=args.batchsize, argmax=True)
+				wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
 				print(wer_dev)
 
 		sys.stdout.write("\r")
