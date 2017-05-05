@@ -73,7 +73,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=False)
+		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=args.attention)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -108,8 +108,12 @@ def main(args):
 
 					# compute loss
 					model.reset_state()
-					encoder_hidden_states = model.encode(source_batch, skip_mask)
-					Y = model.decode(target_batch_input, encoder_hidden_states)
+					if args.attention:
+						last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
+						Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
+					else:
+						last_hidden_states = model.encode(source_batch, skip_mask)
+						Y = model.decode(target_batch_input, last_hidden_states)
 					loss = F.softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
@@ -155,5 +159,6 @@ if __name__ == "__main__":
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--zoneout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
+	parser.add_argument("--attention", default=False, action="store_true")
 	args = parser.parse_args()
 	main(args)

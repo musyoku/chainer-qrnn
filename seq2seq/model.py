@@ -85,7 +85,7 @@ def load_model(dirname):
 
 def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, attention=False):
 	if attention:
-		pass
+		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd)
 	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd)
 
 class Seq2SeqModel(Chain):
@@ -174,16 +174,16 @@ class Seq2SeqModel(Chain):
 
 		return last_hidden_states
 
-	def decode(self, X, last_hidden_states, test=False):
-		assert len(last_hidden_states) == self.num_layers
+	def decode(self, X, encoder_last_hidden_states, test=False):
+		assert len(encoder_last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		enmbedding = self.decoder_embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_decoder_layer(0, enmbedding, last_hidden_states[0], test=test)
+		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], test=test)
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer(layer_index, out_data, last_hidden_states[layer_index], test=test)
+			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], test=test)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -232,31 +232,37 @@ class Seq2SeqModel(Chain):
 		return Y
 
 class AttentiveSeq2SeqModel(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1):
 		super(AttentiveSeq2SeqModel, self).__init__(
-			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0)
+			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
+			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
+			dense=L.Linear(ndim_h, vocab_size_dec),
 		)
 		assert num_layers > 0
-		self.vocab_size = vocab_size
+		self.vocab_size_enc = vocab_size_enc
+		self.vocab_size_dec = vocab_size_dec
 		self.ndim_embedding = ndim_embedding
 		self.num_layers = num_layers
 		self.ndim_h = ndim_h
-		self.kernel_size = kernel_size
+		self.kernel_size_encoder_first = 6
+		self.kernel_size_encoder_other = 4
+		self.kernel_size_decoder_first = 6
+		self.kernel_size_decoder_other = 4
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.wstd = wstd
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_encoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
 
 		if num_layers == 1:
-			self.add_link("dec0", L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=kernel_size, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec0", L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, zoneout=zoneout, wstd=wstd))
 		else:
-			self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
 			for i in xrange(num_layers - 2):
-				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
-			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=kernel_size, zoneout=zoneout, wstd=wstd))
+				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, zoneout=zoneout, wstd=wstd))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
@@ -300,21 +306,23 @@ class AttentiveSeq2SeqModel(Chain):
 			out_data.unchain_backward()
 
 		last_hidden_states = []
+		last_layer_outputs = None
 		for layer_index in xrange(0, self.num_layers):
 			encoder = self.get_encoder(layer_index)
 			last_hidden_states.append(encoder.get_last_hidden_state())
+			last_layer_outputs = encoder.get_all_hidden_states()
 
-		return last_hidden_states
+		return last_hidden_states, last_layer_outputs
 
 	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
 
 		decoder = self.get_decoder(layer_index)
-		if isinstance(decoder, QRNNDecoder):
-			out_data = decoder(in_data, encoder_last_hidden_states, test=test)
-		elif isinstance(decoder, QRNNGlobalAttentiveDecoder):
+		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
 			out_data = decoder(in_data, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=test)
+		elif isinstance(decoder, L.QRNNDecoder):
+			out_data = decoder(in_data, encoder_last_hidden_states, test=test)
 		else:
 			raise Exception()
 
@@ -324,15 +332,15 @@ class AttentiveSeq2SeqModel(Chain):
 		return out_data
 
 	def decode(self, X, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask=None, test=False):
-		assert len(last_hidden_states) == self.num_layers
+		assert len(encoder_last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		enmbedding = self.decoder_embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_decoder_layer(0, enmbedding, last_hidden_states[0], encoder_last_layer_outputs, skip_mask, test=test)
+		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], encoder_last_layer_outputs, skip_mask, test=test)
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer(layer_index, out_data, last_hidden_states[layer_index], encoder_last_layer_outputs, skip_mask, test=test)
+			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, skip_mask, test=test)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)

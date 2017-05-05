@@ -229,17 +229,14 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 		H_enc = functions.swapaxes(H_enc, 1, 2)
 		for t in xrange(T):
 			ct = contexts[t]
-			h = H_enc[:, :t+1, :]
-			geta = 1 if skip_mask is None else softmax_getas[:, :t+1, None]	# to skip PAD
-			mask = 1 if skip_mask is None else skip_mask[:, :t+1, None]		# to skip PAD
-			xt = 1 if skip_mask is None else skip_mask[:, t, None]			# to skip PAD
-			alpha = functions.batch_matmul(h, ct) + geta
+			geta = 0 if skip_mask is None else softmax_getas[:, :, None]	# to skip PAD
+			mask = 1 if skip_mask is None else skip_mask[:, :, None]		# to skip PAD
+			alpha = functions.batch_matmul(H_enc, ct) + geta
 			alpha = functions.softmax(alpha) * mask
-			print(alpha.data)
-			h, alpha = functions.broadcast(h, alpha)	# copy alpha
-			kt = functions.sum(alpha * h, axis=1)
+			alpha = functions.broadcast_to(alpha, H_enc.shape)	# copy
+			kt = functions.sum(alpha * H_enc, axis=1)
 			ot = O[:, :, t]
-			self.ht = ot * self.o(functions.concat((kt, ct), axis=1)) * xt
+			self.ht = ot * self.o(functions.concat((kt, ct), axis=1))
 
 			if test:
 				self.ht.unchain_backward()
