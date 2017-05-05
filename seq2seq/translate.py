@@ -109,7 +109,7 @@ def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, 
 
 	return x
 
-def show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch=None, source_reversed=False):
+def show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch=None, source_reversed=True):
 	batchsize = source_batch.shape[0]
 	for n in xrange(batchsize):
 		sentence = []

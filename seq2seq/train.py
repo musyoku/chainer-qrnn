@@ -21,7 +21,7 @@ from translate import show_random_source_target_translation
 
 def main(args):
 	# load textfile
-	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split)
+	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
@@ -75,7 +75,7 @@ def main(args):
 	if model is None:
 		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=args.attention)
 	if args.gpu_device >= 0:
-		chainer.cuda.get_device(args.gpu_device).use()
+		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
 	# setup an optimizer
@@ -135,7 +135,7 @@ def main(args):
 				wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
 				print(wer_dev)
 
-		sys.stdout.write("\r")
+		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 
 if __name__ == "__main__":
@@ -149,6 +149,7 @@ if __name__ == "__main__":
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--interval", type=int, default=100)
+	parser.add_argument("--seed", type=int, default=0)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wstd", "-w", type=float, default=0.02)
 	parser.add_argument("--train-split", type=float, default=0.9)

@@ -78,7 +78,7 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 	target_test = target_dataset[train_split:]
 
 	# [train] | [validation]
-	dev_split = int(len(source_train_dev) * dev_split_ratio)
+	dev_split = int(len(source_train_dev) * dev_split_ratio / (train_split_ratio + dev_split_ratio))
 	source_dev = source_train_dev[:dev_split]
 	target_dev = target_train_dev[:dev_split]
 	source_train = source_train_dev[dev_split:]

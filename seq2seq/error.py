@@ -1,10 +1,11 @@
 # coding: utf-8
+import argparse, sys
 import numpy as np
 import chainer.functions as F
 from chainer import cuda
-from model import Seq2SeqModel, AttentiveSeq2SeqModel
-from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes
-from dataset import sample_batch_from_bucket
+from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
+from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
+from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
 
 # https://github.com/zszyellow/WER-in-python
 def compute_word_error_rate_of_sequence(r, h):
@@ -123,12 +124,17 @@ def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, b
 			target_sections = [target_bucket]
 
 
-		for source_batch, target_batch in zip(source_sections, target_sections):
+		for n, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
+			sys.stdout.write("\rcomputing WER {} / {}".format(n, len(source_sections)))
+			sys.stdout.flush()
 			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=argmax)
 			sum_wer += mean_wer
 			num_calculation += 1
 
 		result.append(sum_wer / num_calculation * 100)
+		
+		sys.stdout.write("\r" + stdout.CLEAR)
+		sys.stdout.flush()
 
 	return result
 
@@ -145,3 +151,74 @@ def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_
 		result.append(mean_wer * 100)
 
 	return result
+
+def main(args):
+	# load textfile
+	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
+
+	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
+	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
+	print_bold("data	#")
+	print("train	{}".format(len(source_dataset_train)))
+	print("dev	{}".format(len(source_dataset_dev)))
+	print("test	{}".format(len(source_dataset_test)))
+
+	vocab_source, vocab_target = vocab
+	vocab_inv_source, vocab_inv_target = vocab_inv
+	print("vocab	{}	(source)".format(len(vocab_source)))
+	print("vocab	{}	(target)".format(len(vocab_target)))
+
+	# split into buckets
+	source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
+	if args.buckets_limit is not None:
+		source_buckets_train = source_buckets_train[:args.buckets_limit+1]
+		target_buckets_train = target_buckets_train[:args.buckets_limit+1]
+	print_bold("buckets 	#data	(train)")
+	for size, data in zip(bucket_sizes, source_buckets_train):
+		print("{} 	{}".format(size, len(data)))
+	print_bold("buckets 	#data	(dev)")
+
+	source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
+	if args.buckets_limit is not None:
+		source_buckets_dev = source_buckets_dev[:args.buckets_limit+1]
+		target_buckets_dev = target_buckets_dev[:args.buckets_limit+1]
+	for size, data in zip(bucket_sizes, source_buckets_dev):
+		print("{} 	{}".format(size, len(data)))
+	print_bold("buckets		#data	(test)")
+
+	source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
+	if args.buckets_limit is not None:
+		source_buckets_test = source_buckets_test[:args.buckets_limit+1]
+		target_buckets_test = target_buckets_test[:args.buckets_limit+1]
+	for size, data in zip(bucket_sizes, source_buckets_test):
+		print("{} 	{}".format(size, len(data)))
+
+	model = load_model(args.model_dir)
+	assert model is not None
+	if args.gpu_device >= 0:
+		cuda.get_device(args.gpu_device).use()
+		model.to_gpu()
+
+	print_bold("WER (train)")
+	wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+	print(wer_train)
+	print_bold("WER (dev)")
+	wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+	print(wer_dev)
+	print_bold("WER (test)")
+	wer_test = compute_mean_wer(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+	print(wer_test)
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--batchsize", "-b", type=int, default=50)
+	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
+	parser.add_argument("--train-split", type=float, default=0.9)
+	parser.add_argument("--dev-split", type=float, default=0.05)
+	parser.add_argument("--source-filename", "-source", default=None)
+	parser.add_argument("--target-filename", "-target", default=None)
+	parser.add_argument("--buckets-limit", type=int, default=None)
+	parser.add_argument("--model-dir", "-m", type=str, default="model")
+	parser.add_argument("--seed", type=int, default=0)
+	args = parser.parse_args()
+	main(args)
