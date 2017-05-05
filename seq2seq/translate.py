@@ -60,16 +60,14 @@ def make_buckets(dataset):
 		buckets.append(np.asarray(bucket_source).astype(np.int32))
 	return buckets
 
-def _translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_inv_target, argmax=True, source_reversed=True):
+def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, vocab_inv_target, argmax=True, source_reversed=True):
 	xp = model.xp
 	skip_mask = source_batch != ID_PAD
 	batchsize = source_batch.shape[0]
-	target_seq_length = target_batch.shape[1]
 
 	# to gpu
 	if xp is cuda.cupy:
 		source_batch = cuda.to_gpu(source_batch)
-		target_batch = cuda.to_gpu(target_batch)
 		skip_mask = cuda.to_gpu(skip_mask)
 
 	word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
@@ -85,7 +83,7 @@ def _translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_
 	else:
 		encoder_last_hidden_states = model.encode(source_batch, skip_mask, test=True)
 
-	while x.shape[1] < target_seq_length * 2:
+	while x.shape[1] < max_predict_length:
 		if isinstance(model, AttentiveSeq2SeqModel):
 			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True)
 		else:
@@ -109,6 +107,10 @@ def _translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_
 
 			x[n, -1] = token
 
+	return x
+
+def show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch=None, source_reversed=False):
+	batchsize = source_batch.shape[0]
 	for n in xrange(batchsize):
 		sentence = []
 		for token in source_batch[n]:
@@ -121,21 +123,22 @@ def _translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_
 			sentence.reverse()
 		print(">source: ", " ".join(sentence))
 
-		sentence = []
-		for token in target_batch[n]:
-			token = int(token)	# to cpu
-			if token == ID_PAD:
-				break
-			if token == ID_EOS:
-				break
-			if token == ID_GO:
-				continue
-			word = vocab_inv_target[token]
-			sentence.append(word)
-		print(" target: ", " ".join(sentence))
+		if target_batch is not None:
+			sentence = []
+			for token in target_batch[n]:
+				token = int(token)	# to cpu
+				if token == ID_PAD:
+					break
+				if token == ID_EOS:
+					break
+				if token == ID_GO:
+					continue
+				word = vocab_inv_target[token]
+				sentence.append(word)
+			print(" target: ", " ".join(sentence))
 
 		sentence = []
-		for token in x[n]:
+		for token in translation_batch[n]:
 			token = int(token)	# to cpu
 			if token == ID_EOS:
 				break
@@ -147,91 +150,7 @@ def _translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_
 			sentence.append(word)
 		print(" predict:", " ".join(sentence))
 
-	# return
-
-	# xp = model.xp
-	# skip_mask = source_batch != ID_PAD
-	# batchsize = source_batch.shape[0]
-	# target_seq_length = target_batch.shape[1]
-
-	# # to gpu
-	# if xp is cuda.cupy:
-	# 	source_batch = cuda.to_gpu(source_batch)
-	# 	target_batch = cuda.to_gpu(target_batch)
-	# 	skip_mask = cuda.to_gpu(skip_mask)
-
-	# word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
-	# for n in xrange(len(source_batch)):
-	# 	# reset
-	# 	model.reset_state()
-	# 	token = ID_GO
-	# 	x = xp.asarray([[token]]).astype(xp.int32)
-
-	# 	# get encoder's last hidden states
-	# 	if isinstance(model, AttentiveSeq2SeqModel):
-	# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
-	# 	else:
-	# 		encoder_last_hidden_states = model.encode(source_batch[None, n, :], skip_mask[None, n, :], test=True)
-
-	# 	# decode step by step
-	# 	while token != ID_EOS and x.shape[1] < target_seq_length:
-	# 		if isinstance(model, AttentiveSeq2SeqModel):
-	# 			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask[None, n, :], test=True)
-	# 		else:
-	# 			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
-	# 		p = F.softmax(u).data[0]	# convert to probability
-
-	# 		# argmax or sampling
-	# 		if argmax:
-	# 			token = [xp.argmax(p)]
-	# 		else:
-	# 			token = xp.random.choice(word_ids, size=1, p=p)
-
-	# 		# concatenate
-	# 		if xp is np:
-	# 			x = xp.append(x, xp.asarray([token]).astype(xp.int32), axis=1)
-	# 		else:
-	# 			a = cuda.to_gpu(np.asarray([token]).astype(np.int32))	# hack
-	# 			x = xp.concatenate((x, a), axis=1)
-
-	# 	sentence = []
-	# 	for token in source_batch[n, :]:
-	# 		token = int(token)	# to cpu
-	# 		if token == ID_PAD:
-	# 			continue
-	# 		word = vocab_inv_source[token]
-	# 		sentence.append(word)
-	# 	if source_reversed:
-	# 		sentence.reverse()
-	# 	print(">source: ", " ".join(sentence))
-
-	# 	sentence = []
-	# 	for token in target_batch[n, :]:
-	# 		token = int(token)	# to cpu
-	# 		if token == ID_PAD:
-	# 			break
-	# 		if token == ID_EOS:
-	# 			break
-	# 		if token == ID_GO:
-	# 			continue
-	# 		word = vocab_inv_target[token]
-	# 		sentence.append(word)
-	# 	print(" target: ", " ".join(sentence))
-
-	# 	sentence = []
-	# 	for token in x[0]:
-	# 		token = int(token)	# to cpu
-	# 		if token == ID_EOS:
-	# 			break
-	# 		if token == ID_PAD:
-	# 			break
-	# 		if token == ID_GO:
-	# 			continue
-	# 		word = vocab_inv_target[token]
-	# 		sentence.append(word)
-	# 	print(" predict:", " ".join(sentence))
-
-def translate_all(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, batchsize=100):
+def show_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, batchsize=100, argmax=True):
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
 		num_calculation = 0
 		sum_wer = 0
@@ -248,14 +167,34 @@ def translate_all(model, source_buckets, target_buckets, vocab_inv_source, vocab
 			target_sections = [target_bucket]
 
 		for source_batch, target_batch in zip(source_sections, target_sections):
-			_translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_inv_target, argmax=argmax)
+			translation_batch = _translate_batch(model, source_batch, target_batch.shape[1] * 2, vocab_inv_source, vocab_inv_target, argmax=argmax)
+			show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
 
-def translate_random(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=100, argmax=True):
+def show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, batchsize=100, argmax=True):
+	for source_bucket in source_buckets:
+		num_calculation = 0
+		sum_wer = 0
+
+		if len(source_bucket) > batchsize:
+			num_sections = len(source_bucket) // batchsize - 1
+			if len(source_bucket) % batchsize > 0:
+				num_sections += 1
+			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+			source_sections = np.split(source_bucket, indices, axis=0)
+		else:
+			source_sections = [source_bucket]
+
+		for source_batch in source_sections:
+			translation_batch = _translate_batch(model, source_batch, source_batch.shape[1] * 2, vocab_inv_source, vocab_inv_target, argmax=argmax)
+			show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch)
+
+def show_random_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=100, argmax=True):
 	xp = model.xp
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
 		# sample minibatch
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, num_translate)
-		_translate_batch(model, source_batch, target_batch, vocab_inv_source, vocab_inv_target, argmax=argmax)
+		translation_batch = _translate_batch(model, source_batch, target_batch.shape[1] * 2, vocab_inv_source, vocab_inv_target, argmax=argmax)
+		show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
 
 def main(args):
 	# load vocab
@@ -282,7 +221,7 @@ def main(args):
 	model = load_model(args.model_dir)
 	assert model is not None
 
-	translate_all(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target)
+	show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
