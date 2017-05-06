@@ -111,6 +111,7 @@ class QRNN(link.Chain):
 				self.ct = ft * self.ct + it * zt * xt
 			self.ht = self.ct if O is None else ot * self.ct
 
+
 			if self.H is None:
 				self.H = functions.expand_dims(self.ht, 2)
 			else:

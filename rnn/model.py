@@ -58,6 +58,7 @@ def save_model(dirname, qrnn):
 		"zoneout": qrnn.zoneout,
 		"wstd": qrnn.wstd,
 		"densely_connected": qrnn.densely_connected,
+		"ignore_label": qrnn.ignore_label,
 	}
 	with open(param_filename, "w") as f:
 		json.dump(params, f, indent=4, sort_keys=True, separators=(',', ': '))
@@ -74,7 +75,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = QRNN(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["densely_connected"])
+		qrnn = RNNModel(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["densely_connected"], params["ignore_label"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -84,10 +85,10 @@ def load_model(dirname):
 	else:
 		return None
 
-class QRNN(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, densely_connected=False):
-		super(QRNN, self).__init__(
-			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=0),
+class RNNModel(Chain):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, densely_connected=False, ignore_label=None):
+		super(RNNModel, self).__init__(
+			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
 			dense=L.Linear(ndim_h, vocab_size),
 		)
 		assert num_layers > 0
@@ -99,23 +100,24 @@ class QRNN(Chain):
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.wstd = wstd
+		self.ignore_label = ignore_label
 		self.densely_connected = densely_connected
 
 		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
 		for i in xrange(num_layers - 1):
 			self.add_link("qrnn{}".format(i + 1), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
 
-	def rnn(self, index):
+	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))
 
 	def reset_state(self):
 		for i in xrange(self.num_layers):
-			self.rnn(i).reset_state()
+			self.get_rnn_layer(i).reset_state()
 
-	def _forward_rnn_one_layer(self, layer_index, in_data, test=False):
+	def _forward_layer(self, layer_index, in_data, test=False):
 		if test:
 			in_data.unchain_backward()
-		rnn = self.rnn(layer_index)
+		rnn = self.get_rnn_layer(layer_index)
 		out_data = rnn(in_data, test=test)
 		if test:
 			out_data.unchain_backward()
@@ -123,16 +125,16 @@ class QRNN(Chain):
 
 	# we use "dense convolution"
 	# https://arxiv.org/abs/1608.06993
-	def __call__(self, X, test=False):
+	def __call__(self, X, test=False, return_last=False):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		enmbedding = self.embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_rnn_one_layer(0, enmbedding, test=test)
+		out_data = self._forward_layer(0, enmbedding, test=test)
 		in_data = [out_data]
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_rnn_one_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1], test=test)	# dense conv
+			out_data = self._forward_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1], test=test)	# dense conv
 			in_data.append(out_data)
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
@@ -140,7 +142,10 @@ class QRNN(Chain):
 		if test:
 			out_data.unchain_backward()
 
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		if return_last:
+			out_data = out_data[:, :, -1, None]
+
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
 		if test:
@@ -148,10 +153,10 @@ class QRNN(Chain):
 
 		return Y
 
-	def _forward_rnn_one_layer_one_step(self, layer_index, in_data, test=False):
+	def _forward_layer_one_step(self, layer_index, in_data, test=False):
 		if test:
 			in_data.unchain_backward()
-		rnn = self.rnn(layer_index)
+		rnn = self.get_rnn_layer(layer_index)
 		out_data = rnn.forward_one_step(in_data, test=test)
 		if test:
 			out_data.unchain_backward()
@@ -164,24 +169,25 @@ class QRNN(Chain):
 
 		if seq_length < ksize:
 			self.reset_state()
-			return self.__call__(X, test=test)
+			return self.__call__(X, test=test, return_last=True)
 
 		xt = X[:, -ksize:]
 		enmbedding = self.embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_rnn_one_layer_one_step(0, enmbedding, test=test)
+		out_data = self._forward_layer_one_step(0, enmbedding, test=test)[:, :, -ksize:]
 		in_data = [out_data]
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_rnn_one_layer_one_step(layer_index, sum(in_data), test=test)
+			out_data = self._forward_layer_one_step(layer_index, sum(in_data) if self.densely_connected else in_data[-1], test=test)[:, :, -ksize:]	# dense conv
 			in_data.append(out_data)
 
-		out_data = sum(in_data)	# dense conv
+		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
 		if test:
 			out_data.unchain_backward()
 			
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize * seq_length, -1))
+		out_data = out_data[:, :, -1, None]
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
 		if test:

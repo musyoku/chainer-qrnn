@@ -9,8 +9,9 @@ from chainer import Variable, Chain
 from model import AttentiveSeq2SeqModel, Seq2SeqModel
 
 def test_seq2seq():
-	enc_seq_length = 5
-	dec_seq_length = 7
+	num_layers = 13
+	enc_seq_length = num_layers * 2
+	dec_seq_length = num_layers * 3
 	batchsize = 3
 	enc_vocab_size = 6
 	dec_vocab_size = 3
@@ -19,13 +20,13 @@ def test_seq2seq():
 	skip_mask = np.ones_like(enc_data).astype(np.float32)
 	skip_mask[:, :1] = 0
 	skip_mask[0, :2] = 0
-	print(skip_mask)
+	skip_mask[1, :4] = 0
+	skip_mask[2, :7] = 0
 
-	model = Seq2SeqModel(10, 3, 30, 1, 3, pooling="fo", zoneout=False, wstd=1)
+	model = Seq2SeqModel(enc_vocab_size, dec_vocab_size, ndim_embedding=30, num_layers=num_layers, ndim_h=3, pooling="fo", zoneout=False, wstd=1)
 
 	ht = model.encode(enc_data, skip_mask)
 	Y = model.decode(dec_data, ht)
-	print(Y.data)
 
 	model.reset_decoder_state()
 	for t in xrange(dec_seq_length):
@@ -33,10 +34,12 @@ def test_seq2seq():
 		target = np.swapaxes(np.reshape(Y.data, (batchsize, -1, dec_vocab_size)), 1, 2)
 		target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))
 		assert np.sum((y - target) ** 2) == 0
+		print("t = {} OK".format(t))
 
 def test_attentive_seq2seq():
-	enc_seq_length = 5
-	dec_seq_length = 7
+	num_layers = 13
+	enc_seq_length = num_layers * 2
+	dec_seq_length = num_layers * 3
 	batchsize = 3
 	enc_vocab_size = 6
 	dec_vocab_size = 3
@@ -45,13 +48,13 @@ def test_attentive_seq2seq():
 	skip_mask = np.ones_like(enc_data).astype(np.float32)
 	skip_mask[:, :1] = 0
 	skip_mask[0, :2] = 0
-	print(skip_mask)
+	skip_mask[1, :4] = 0
+	skip_mask[2, :7] = 0
 
-	model = AttentiveSeq2SeqModel(10, 3, 30, 1, 3, pooling="fo", zoneout=False, wstd=1)
+	model = AttentiveSeq2SeqModel(enc_vocab_size, dec_vocab_size, ndim_embedding=30, num_layers=num_layers, ndim_h=3, pooling="fo", zoneout=False, wstd=1)
 
 	ht, H = model.encode(enc_data, skip_mask)
 	Y = model.decode(dec_data, ht, H, skip_mask)
-	print(Y.data)
 
 	model.reset_decoder_state()
 	for t in xrange(dec_seq_length):
@@ -59,6 +62,7 @@ def test_attentive_seq2seq():
 		target = np.swapaxes(np.reshape(Y.data, (batchsize, -1, dec_vocab_size)), 1, 2)
 		target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))
 		assert np.sum((y - target) ** 2) == 0
+		print("t = {} OK".format(t))
 
 if __name__ == "__main__":
 	test_seq2seq()
