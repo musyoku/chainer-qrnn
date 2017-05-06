@@ -79,7 +79,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, attention=args.attention)
+		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, densely_connected=args.densely_connected, attention=args.attention)
 	if args.gpu_device >= 0:
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -165,7 +165,8 @@ if __name__ == "__main__":
 	parser.add_argument("--target-filename", "-target", default=None)
 	parser.add_argument("--buckets-limit", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
-	parser.add_argument("--zoneout", default=False, action="store_true")
+	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
+	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
 	parser.add_argument("--attention", default=False, action="store_true")
 	args = parser.parse_args()

@@ -73,7 +73,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		model = seq2seq(params["vocab_size_enc"], params["vocab_size_dec"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["pooling"], params["zoneout"], params["wstd"], params["attention"])
+		model = seq2seq(vocab_size_enc=params["vocab_size_enc"], vocab_size_dec=params["vocab_size_dec"], ndim_embedding=params["ndim_embedding"], num_layers=params["num_layers"], ndim_h=params["ndim_h"], pooling=params["pooling"], zoneout=params["zoneout"], wstd=params["wstd"], densely_connected=params["densely_connected"], attention=params["attention"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -83,13 +83,13 @@ def load_model(dirname):
 	else:
 		return None
 
-def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, attention=False):
+def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, densely_connected=False, attention=False):
 	if attention:
-		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd)
-	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd)
+		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd, densely_connected)
+	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd, densely_connected)
 
 class Seq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, densely_connected=False):
 		super(Seq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -107,6 +107,7 @@ class Seq2SeqModel(Chain):
 		self.kernel_size_decoder_other = 4
 		self.pooling = pooling
 		self.zoneout = zoneout
+		self.densely_connected = densely_connected
 		self.wstd = wstd
 
 		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
@@ -161,8 +162,13 @@ class Seq2SeqModel(Chain):
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_encoder_layer(0, enmbedding, skip_mask=skip_mask, test=test)
+		in_data = [out_data]
+
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_encoder_layer(layer_index, out_data, skip_mask=skip_mask, test=test)
+			out_data = self._forward_encoder_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1], skip_mask=skip_mask, test=test)
+			in_data.append(out_data)
+
+		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
 		if test:
 			out_data.unchain_backward()
@@ -182,8 +188,13 @@ class Seq2SeqModel(Chain):
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], test=test)
+		in_data = [out_data]
+
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], test=test)
+			out_data = self._forward_decoder_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1], encoder_last_hidden_states[layer_index], test=test)
+			in_data.append(out_data)
+
+		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
 		if return_last:
 			out_data = out_data[:, :, -1, None]
@@ -223,9 +234,16 @@ class Seq2SeqModel(Chain):
 		out_data = self._forward_decoder_layer_one_step(0, enmbedding, encoder_last_hidden_states[0], test=test)
 		if ksize != self.kernel_size_decoder_first:
 			out_data = out_data[:, :, -ksize:]
-		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer_one_step(layer_index, out_data, encoder_last_hidden_states[layer_index], test=test)
 
+		in_data = [out_data]
+
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_decoder_layer_one_step(layer_index, sum(in_data) if self.densely_connected else in_data[-1], encoder_last_hidden_states[layer_index], test=test)
+			if ksize != self.kernel_size_decoder_first:
+				out_data = out_data[:, :, -ksize:]
+			in_data.append(out_data)
+
+		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 		out_data = out_data[:, :, -1, None]
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -236,7 +254,7 @@ class Seq2SeqModel(Chain):
 		return Y
 
 class AttentiveSeq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, densely_connected=False):
 		super(AttentiveSeq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -252,6 +270,7 @@ class AttentiveSeq2SeqModel(Chain):
 		self.kernel_size_encoder_other = 4
 		self.kernel_size_decoder_first = 6
 		self.kernel_size_decoder_other = 4
+		self.densely_connected = densely_connected
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.wstd = wstd
@@ -343,8 +362,13 @@ class AttentiveSeq2SeqModel(Chain):
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
 		out_data = self._forward_decoder_layer(0, enmbedding, encoder_last_hidden_states[0], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+		in_data = [out_data]
+
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer(layer_index, out_data, encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+			out_data = self._forward_decoder_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1], encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+			in_data.append(out_data)
+
+		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
 		if return_last:
 			out_data = out_data[:, :, -1, None]
@@ -392,9 +416,16 @@ class AttentiveSeq2SeqModel(Chain):
 		out_data = self._forward_decoder_layer_one_step(0, enmbedding, encoder_last_hidden_states[0], encoder_last_layer_outputs, encoder_skip_mask, test=test)
 		if ksize != self.kernel_size_decoder_first:
 			out_data = out_data[:, :, -ksize:]
-		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_decoder_layer_one_step(layer_index, out_data, encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, encoder_skip_mask, test=test)
 
+		in_data = [out_data]
+		
+		for layer_index in xrange(1, self.num_layers):
+			out_data = self._forward_decoder_layer_one_step(layer_index, sum(in_data) if self.densely_connected else in_data[-1], encoder_last_hidden_states[layer_index], encoder_last_layer_outputs, encoder_skip_mask, test=test)
+			if ksize != self.kernel_size_decoder_first:
+				out_data = out_data[:, :, -ksize:]
+			in_data.append(out_data)
+
+		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 		out_data = out_data[:, :, -1, None]
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize, self.ndim_h))
 		Y = self.dense(out_data)
