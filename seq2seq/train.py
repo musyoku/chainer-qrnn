@@ -41,19 +41,20 @@ def main(args):
 	if args.buckets_limit is not None:
 		source_buckets_train = source_buckets_train[:args.buckets_limit+1]
 		target_buckets_train = target_buckets_train[:args.buckets_limit+1]
+
 	print_bold("buckets 	#data	(train)")
 	for size, data in zip(bucket_sizes, source_buckets_train):
 		print("{} 	{}".format(size, len(data)))
-	print_bold("buckets 	#data	(dev)")
 
+	print_bold("buckets 	#data	(dev)")
 	source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
 	if args.buckets_limit is not None:
 		source_buckets_dev = source_buckets_dev[:args.buckets_limit+1]
 		target_buckets_dev = target_buckets_dev[:args.buckets_limit+1]
 	for size, data in zip(bucket_sizes, source_buckets_dev):
 		print("{} 	{}".format(size, len(data)))
-	print_bold("buckets		#data	(test)")
 
+	print_bold("buckets		#data	(test)")
 	source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
 	if args.buckets_limit is not None:
 		source_buckets_test = source_buckets_test[:args.buckets_limit+1]
@@ -68,7 +69,12 @@ def main(args):
 			min_num_data = len(data)
 	repeats = []
 	for data in source_buckets_train:
-		repeats.append(len(data) // min_num_data)
+		repeats.append(len(data) // min_num_data + 1)
+
+	num_updates_per_iteration = 0
+	for repeat, data in zip(repeats, source_buckets_train):
+		num_updates_per_iteration += repeat * args.batchsize
+	num_iteration = len(source_dataset_train) // num_updates_per_iteration + 1
 
 	# init
 	model = load_model(args.model_dir)
@@ -88,7 +94,6 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 
 	# training
-	num_iteration = len(source_dataset_train) // args.batchsize + 1
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
@@ -120,22 +125,23 @@ def main(args):
 				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 				sys.stdout.flush()
 
-			if itr % args.interval == 0:
+			if itr % args.interval == 0 or itr == num_iteration:
 				save_model(args.model_dir, model)
-				# show log
-				sys.stdout.write("\r" + stdout.CLEAR)
-				sys.stdout.flush()
-				print_bold("translate (train)")
-				show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
-				print_bold("translate (dev)")
-				show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
-				print_bold("WER (sampled train)")
-				wer_train = compute_random_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), sample_size=args.batchsize, argmax=True)
-				print(wer_train)
-				print_bold("WER (dev)")
-				wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
-				print(wer_dev)
 
+		# show log
+		sys.stdout.write("\r" + stdout.CLEAR)
+		sys.stdout.flush()
+		print_bold("translate (train)")
+		show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
+		print_bold("translate (dev)")
+		show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
+		print_bold("WER (sampled train)")
+		wer_train = compute_random_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), sample_size=args.batchsize, argmax=True)
+		print(wer_train)
+		print_bold("WER (dev)")
+		wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+		print(wer_dev)
+		
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 

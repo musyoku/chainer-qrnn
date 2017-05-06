@@ -28,13 +28,20 @@ def main(args):
 
 	# split into buckets
 	train_buckets = make_buckets(train_dataset)
+
 	print_bold("buckets	#data	(train)")
+	if args.buckets_limit is not None:
+		train_buckets = train_buckets[:args.buckets_limit+1]
 	for size, data in zip(bucket_sizes, train_buckets):
 		print("{}	{}".format(size, len(data)))
+
 	print_bold("buckets	#data	(dev)")
 	dev_buckets = make_buckets(dev_dataset)
+	if args.buckets_limit is not None:
+		dev_buckets = dev_buckets[:args.buckets_limit+1]
 	for size, data in zip(bucket_sizes, dev_buckets):
 		print("{}	{}".format(size, len(data)))
+
 	print_bold("buckets	#data	(test)")
 	test_buckets = make_buckets(test_dataset)
 	for size, data in zip(bucket_sizes, test_buckets):
@@ -47,12 +54,17 @@ def main(args):
 			min_num_data = len(data)
 	repeats = []
 	for data in train_buckets:
-		repeats.append(len(data) // min_num_data)
+		repeats.append(len(data) // min_num_data + 1)
+
+	num_updates_per_iteration = 0
+	for repeat, data in zip(repeats, train_buckets):
+		num_updates_per_iteration += repeat * args.batchsize
+	num_iteration = len(train_dataset) // num_updates_per_iteration + 1
 
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = RNNModel(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, densely_connected=args.densely_connected, ignore_label=ID_PAD)
+		model = RNNModel(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, kernel_size=args.kernel_size, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, densely_connected=args.densely_connected, ignore_label=ID_PAD)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -67,10 +79,12 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 
 	# training
-	num_iteration = len(train_dataset) // args.batchsize + 1
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		for itr in xrange(1, num_iteration + 1):
+			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
+			sys.stdout.flush()
+
 			for repeat, dataset in zip(repeats, train_buckets):
 				for r in xrange(repeat):
 					batch = sample_batch_from_bucket(dataset, args.batchsize)
@@ -83,10 +97,8 @@ def main(args):
 					loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
-				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
-				sys.stdout.flush()
 
-			if itr % args.interval == 0:
+			if itr % args.interval == 0 or itr == num_iteration:
 				save_model(args.model_dir, model)
 				# show log
 				sys.stdout.write("\r" + stdout.CLEAR)
@@ -110,10 +122,11 @@ def main(args):
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--batchsize", "-b", type=int, default=24)
-	parser.add_argument("--epoch", "-e", type=int, default=30)
+	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
-	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
+	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-5) 
+	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
@@ -123,6 +136,7 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wstd", "-w", type=float, default=0.02)
+	parser.add_argument("--buckets-limit", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--text-filename", "-f", default=None)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
