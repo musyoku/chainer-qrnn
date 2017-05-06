@@ -3,8 +3,8 @@ import codecs, random
 import numpy as np
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes
 
-def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed=0):
-	assert(train_split_ratio + validation_split_ratio <= 1)
+def read_data(filepath, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0):
+	assert(train_split_ratio + dev_split_ratio <= 1)
 	vocab = {
 		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
@@ -34,17 +34,17 @@ def read_data(filepath, train_split_ratio=0.9, validation_split_ratio=0.05, seed
 	random.seed(seed)
 	random.shuffle(dataset)
 
-	# [train][validation] | [test]
-	train_split = int(len(dataset) * (train_split_ratio + validation_split_ratio))
-	train_validation_dataset = dataset[:train_split]
+	# [train][dev] | [test]
+	train_split = int(len(dataset) * (train_split_ratio + dev_split_ratio))
+	train_dev_dataset = dataset[:train_split]
 	test_dataset = dataset[train_split:]
 
-	# [train] | [validation]
-	validation_split = int(len(train_validation_dataset) * validation_split_ratio)
-	validation_dataset = train_validation_dataset[:validation_split]
-	train_dataset = train_validation_dataset[validation_split:]
+	# [train] | [dev]
+	dev_split = int(len(train_dev_dataset) * dev_split_ratio / (train_split_ratio + dev_split_ratio))
+	dev_dataset = train_dev_dataset[:dev_split]
+	train_dataset = train_dev_dataset[dev_split:]
 
-	return train_dataset, validation_dataset, test_dataset, vocab, vocab_inv
+	return train_dataset, dev_dataset, test_dataset, vocab, vocab_inv
 
 # input:
 # [0, a, b, c, 1]

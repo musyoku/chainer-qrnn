@@ -108,7 +108,7 @@ def _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size
 
 def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, batchsize=100, argmax=True):
 	result = []
-	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
+	for bucket_index, (source_bucket, target_bucket) in enumerate(zip(source_buckets, target_buckets)):
 		num_calculation = 0
 		sum_wer = 0
 
@@ -124,8 +124,8 @@ def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, b
 			target_sections = [target_bucket]
 
 
-		for n, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
-			sys.stdout.write("\rcomputing WER {} / {}".format(n, len(source_sections)))
+		for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
+			sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
 			sys.stdout.flush()
 			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=argmax)
 			sum_wer += mean_wer

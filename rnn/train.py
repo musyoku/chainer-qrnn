@@ -11,107 +11,18 @@ from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from eve import Eve
 from model import RNNModel, load_model, save_model, save_vocab
-from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
-
-def compute_accuracy_batch(model, batch):
-	source, target = make_source_target_pair(batch)
-	if model.xp is cuda.cupy:
-		source = cuda.to_gpu(source)
-		target = cuda.to_gpu(target)
-	model.reset_state()
-	Y = model(source, test=True)
-	return float(F.accuracy(Y, target, ignore_label=ID_PAD).data)
-
-def compute_accuracy(model, buckets, batchsize=100):
-	acc = []
-	for dataset in buckets:
-		# split into minibatch
-		if len(dataset) > batchsize:
-			num_sections = len(dataset) // batchsize - 1
-			if len(dataset) % batchsize > 0:
-				num_sections += 1
-			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
-			sections = np.split(dataset, indices, axis=0)
-		else:
-			sections = [dataset]
-		# compute accuracy
-		for batch in sections:
-			acc.append(compute_accuracy_batch(model, batch))
-	return reduce(lambda x, y: x + y, acc) / len(acc)
-
-def compute_minibatch_accuracy(model, buckets, batchsize=100):
-	acc = []
-	for dataset in buckets:
-		batch = sample_batch_from_bucket(dataset, batchsize)
-		acc.append(compute_accuracy_batch(model, batch))
-	return reduce(lambda x, y: x + y, acc) / len(acc)
-
-def compute_perplexity_batch(model, batch):
-	sum_log_likelihood = 0
-	source, target = make_source_target_pair(batch)
-	xp = model.xp
-	if xp is cuda.cupy:
-		source = cuda.to_gpu(source)
-		target = cuda.to_gpu(target)
-	model.reset_state()
-	Y = F.softmax(model(source, test=True))
-	Y.unchain_backward()
-	P = Y.data[xp.arange(0, len(target)), target] + 1e-32
-	log_P = xp.log(P)
-	mask = target != ID_PAD
-	log_P *= mask
-	num_tokens = xp.count_nonzero(mask)
-	mean_log_P = xp.sum(log_P) / num_tokens
-	return math.exp(-float(mean_log_P))
-
-	# batchsize = batch.shape[0]
-	# seq_batch = xp.split(Y, batchsize)
-	# target_batch = xp.split(target, batchsize)
-	# for seq, target in zip(seq_batch, target_batch):
-	# 	assert len(seq) == len(target)
-	# 	log_likelihood = 0
-	# 	num_tokens = 0
-	# 	for t in xrange(len(seq)):
-	# 		if target[t] == ID_PAD:
-	# 			break
-	# 		log_likelihood += math.log(seq[t, target[t]] + 1e-32)
-	# 		num_tokens += 1
-	# 	assert num_tokens > 0
-	# 	sum_log_likelihood += log_likelihood / num_tokens
-	# return math.exp(-sum_log_likelihood / batchsize)
-
-def compute_perplexity(model, buckets, batchsize=100):
-	ppl = []
-	for dataset in buckets:
-		# split into minibatch
-		if len(dataset) > batchsize:
-			num_sections = len(dataset) // batchsize - 1
-			if len(dataset) % batchsize > 0:
-				num_sections += 1
-			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
-			sections = np.split(dataset, indices, axis=0)
-		else:
-			sections = [dataset]
-		# compute accuracy
-		for batch in sections:
-			ppl.append(compute_perplexity_batch(model, batch))
-	return reduce(lambda x, y: x + y, ppl) / len(ppl)
-
-def compute_minibatch_perplexity(model, buckets, batchsize=100):
-	ppl = []
-	for dataset in buckets:
-		batch = sample_batch_from_bucket(dataset, batchsize)
-		ppl.append(compute_perplexity_batch(model, batch))
-	return reduce(lambda x, y: x + y, ppl) / len(ppl)
+from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
+from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
+from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity
 
 def main(args):
 	# load textfile
-	train_dataset, validation_dataset, test_dataset, vocab, vocab_inv = read_data(args.text_filename)
+	train_dataset, dev_dataset, test_dataset, vocab, vocab_inv = read_data(args.text_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 	vocab_size = len(vocab)
 	print_bold("data	#")
 	print("train	{}".format(len(train_dataset)))
-	print("dev	{}".format(len(validation_dataset)))
+	print("dev	{}".format(len(dev_dataset)))
 	print("test	{}".format(len(test_dataset)))
 	print("vocab	{}".format(vocab_size))
 
@@ -121,8 +32,8 @@ def main(args):
 	for size, data in zip(bucket_sizes, train_buckets):
 		print("{}	{}".format(size, len(data)))
 	print_bold("buckets	#data	(dev)")
-	validation_buckets = make_buckets(validation_dataset)
-	for size, data in zip(bucket_sizes, validation_buckets):
+	dev_buckets = make_buckets(dev_dataset)
+	for size, data in zip(bucket_sizes, dev_buckets):
 		print("{}	{}".format(size, len(data)))
 	print_bold("buckets	#data	(test)")
 	test_buckets = make_buckets(test_dataset)
@@ -176,9 +87,22 @@ def main(args):
 				sys.stdout.flush()
 
 			if itr % args.interval == 0:
-				print("\r	accuracy: {} (train), {} (dev)".format(compute_minibatch_accuracy(model, train_buckets, args.batchsize), compute_accuracy(model, validation_buckets, args.batchsize)))
-				print("\r	ppl: {} (train), {} (dev)".format(compute_minibatch_perplexity(model, train_buckets, args.batchsize), compute_perplexity(model, validation_buckets, args.batchsize)))
 				save_model(args.model_dir, model)
+				# show log
+				sys.stdout.write("\r" + stdout.CLEAR)
+				sys.stdout.flush()
+				print_bold("accuracy (sampled train)")
+				acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
+				print(acc_train)
+				print_bold("accuracy (dev)")
+				acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
+				print(acc_dev)
+				print_bold("ppl (sampled train)")
+				ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
+				print(ppl_train)
+				print_bold("ppl (dev)")
+				ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
+				print(ppl_dev)
 
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
@@ -193,13 +117,16 @@ if __name__ == "__main__":
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
+	parser.add_argument("--seed", type=int, default=0)
+	parser.add_argument("--train-split", type=float, default=0.9)
+	parser.add_argument("--dev-split", type=float, default=0.05)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wstd", "-w", type=float, default=0.02)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--text-filename", "-f", default=None)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
-	parser.add_argument("--zoneout", default=False, action="store_true")
+	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
 	args = parser.parse_args()
 	main(args)

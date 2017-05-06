@@ -122,6 +122,7 @@ def main(args):
 
 			if itr % args.interval == 0:
 				save_model(args.model_dir, model)
+				# show log
 				sys.stdout.write("\r" + stdout.CLEAR)
 				sys.stdout.flush()
 				print_bold("translate (train)")
