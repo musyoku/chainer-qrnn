@@ -141,14 +141,14 @@ def main(args):
 		print_bold("WER (dev)")
 		wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
 		print(wer_dev)
-		
+
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--batchsize", "-b", type=int, default=50)
-	parser.add_argument("--epoch", "-e", type=int, default=100)
+	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-5) 
