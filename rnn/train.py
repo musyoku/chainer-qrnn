@@ -13,7 +13,7 @@ from eve import Eve
 from model import RNNModel, load_model, save_model, save_vocab
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
-from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity
+from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity, softmax_cross_entropy
 
 def main(args):
 	# load textfile
@@ -73,7 +73,7 @@ def main(args):
 	if args.eve:
 		optimizer = Eve(alpha=0.001, beta1=0.9)
 	else:
-		optimizer = optimizers.Adam(alpha=0.001, beta1=0.9)
+		optimizer = optimizers.Adam(alpha=0.0005, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
@@ -94,27 +94,29 @@ def main(args):
 						target = cuda.to_gpu(target)
 					model.reset_state()
 					Y = model(source)
-					loss = F.softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
+					loss = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
 
 			if itr % args.interval == 0 or itr == num_iteration:
 				save_model(args.model_dir, model)
 				# show log
+				def mean(l):
+					return sum(l) / len(l)
 				sys.stdout.write("\r" + stdout.CLEAR)
 				sys.stdout.flush()
 				print_bold("accuracy (sampled train)")
 				acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
-				print(acc_train)
+				print(mean(acc_train), acc_train)
 				print_bold("accuracy (dev)")
 				acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
-				print(acc_dev)
+				print(mean(acc_dev), acc_dev)
 				print_bold("ppl (sampled train)")
 				ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
-				print(ppl_train)
+				print(mean(ppl_train), ppl_train)
 				print_bold("ppl (dev)")
 				ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
-				print(ppl_dev)
+				print(mean(ppl_dev), ppl_dev)
 
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
@@ -125,7 +127,7 @@ if __name__ == "__main__":
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
-	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-5) 
+	parser.add_argument("--weight-decay", "-wd", type=float, default=5e-5) 
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
