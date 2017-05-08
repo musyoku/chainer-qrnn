@@ -2,10 +2,80 @@
 import argparse, sys
 import numpy as np
 import chainer.functions as F
-from chainer import cuda
+import chainer
+from chainer import cuda, functions
+from chainer.utils import type_check
+from chainer.functions.activation import log_softmax
 from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
+
+class SoftmaxCrossEntropy(functions.loss.softmax_cross_entropy.SoftmaxCrossEntropy):
+
+	def forward_gpu(self, inputs):
+		cupy = cuda.cupy
+		x, t = inputs
+		if chainer.is_debug():
+			self._check_input_values(x, t)
+
+		log_y = log_softmax._log_softmax(x, self.use_cudnn)
+		if self.cache_score:
+			self.y = cupy.exp(log_y)
+		if self.class_weight is not None:
+			shape = [1 if d != 1 else -1 for d in six.moves.range(x.ndim)]
+			log_y *= cupy.broadcast_to(
+				self.class_weight.reshape(shape), x.shape)
+		if self.normalize:
+			coeff = cupy.maximum(1, (t != self.ignore_label).sum())
+		else:
+			coeff = max(1, len(t))
+		self._coeff = cupy.divide(1.0, coeff, dtype=x.dtype)
+
+		log_y = cupy.rollaxis(log_y, 1, log_y.ndim)
+		ret = cuda.reduce(
+			'S t, raw T log_y, int32 n_channel, raw T coeff, S ignore_label', 'T out',
+			't == ignore_label ? T(0) : log_y[_j * n_channel + t]',
+			'a + b', 'out = a * -coeff[0]', '0', 'crossent_fwd'
+		)(t, log_y.reduced_view(), log_y.shape[-1], self._coeff, self.ignore_label)
+		return ret,
+
+	def backward_gpu(self, inputs, grad_outputs):
+		cupy = cuda.cupy
+		x, t = inputs
+		if hasattr(self, 'y'):
+			y = self.y
+		else:
+			y = log_softmax._log_softmax(x, self.use_cudnn)
+			cupy.exp(y, out=y)
+		gloss = grad_outputs[0]
+		n_unit = t.size // len(t)
+		coeff = gloss * self._coeff
+		if self.class_weight is None:
+			gx = cuda.elementwise(
+				'T y, S t, raw T coeff, S n_channel, S n_unit, S ignore_label',
+				'T gx',
+				'''
+					const int c = (i / n_unit % n_channel);
+					gx = (t == ignore_label) ? 0 : (coeff[0] * (y - (c == t)));
+				''',
+				'softmax_crossent_bwd')(
+					y, cupy.expand_dims(t, 1), coeff, x.shape[1], n_unit, self.ignore_label)
+		else:
+			gx = cuda.elementwise(
+				'T y, raw T w, S t, raw T coeff, S n_channel, S n_unit, S ignore_label',
+				'T gx',
+				'''
+					const int c = (i / n_unit % n_channel);
+					gx = t == ignore_label ? 0 : coeff[0] * (y - (c == t)) * w[t];
+				''',
+				'softmax_crossent_bwd')(
+					y, self.class_weight, cupy.expand_dims(t, 1), coeff,
+					x.shape[1], n_unit, self.ignore_label)
+		return gx, None
+
+
+def softmax_cross_entropy(x, t, use_cudnn=True, normalize=True, cache_score=True, class_weight=None, ignore_label=-1):
+	return SoftmaxCrossEntropy(use_cudnn, normalize, cache_score, class_weight, ignore_label)(x, t)
 
 # https://github.com/zszyellow/WER-in-python
 def compute_word_error_rate_of_sequence(r, h):

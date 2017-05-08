@@ -13,7 +13,7 @@ from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bo
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
 from eve import Eve
 from model import seq2seq, load_model, save_model, save_vocab
-from error import compute_mean_wer, compute_random_mean_wer
+from error import compute_mean_wer, compute_random_mean_wer, softmax_cross_entropy
 from translate import show_random_source_target_translation
 
 # reference
@@ -119,7 +119,7 @@ def main(args):
 					else:
 						last_hidden_states = model.encode(source_batch, skip_mask)
 						Y = model.decode(target_batch_input, last_hidden_states)
-					loss = F.softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
+					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
 				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
