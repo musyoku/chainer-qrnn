@@ -23,7 +23,7 @@ def test_seq2seq():
 	skip_mask[1, :4] = 0
 	skip_mask[2, :7] = 0
 
-	model = Seq2SeqModel(enc_vocab_size, dec_vocab_size, ndim_embedding=30, num_layers=num_layers, ndim_h=3, pooling="fo", zoneout=False, wstd=1, densely_connected=True)
+	model = Seq2SeqModel(enc_vocab_size, dec_vocab_size, ndim_embedding=30, num_layers=num_layers, ndim_h=3, pooling="fo", zoneout=False, wgain=1, densely_connected=True)
 
 	ht = model.encode(enc_data, skip_mask)
 	Y = model.decode(dec_data, ht)
@@ -51,7 +51,7 @@ def test_attentive_seq2seq():
 	skip_mask[1, :4] = 0
 	skip_mask[2, :7] = 0
 
-	model = AttentiveSeq2SeqModel(enc_vocab_size, dec_vocab_size, ndim_embedding=30, num_layers=num_layers, ndim_h=3, pooling="fo", zoneout=False, wstd=1, densely_connected=True)
+	model = AttentiveSeq2SeqModel(enc_vocab_size, dec_vocab_size, ndim_embedding=30, num_layers=num_layers, ndim_h=3, pooling="fo", zoneout=False, wgain=1, densely_connected=True)
 
 	ht, H = model.encode(enc_data, skip_mask)
 	Y = model.decode(dec_data, ht, H, skip_mask)

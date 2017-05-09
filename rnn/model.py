@@ -56,7 +56,7 @@ def save_model(dirname, qrnn):
 		"kernel_size": qrnn.kernel_size,
 		"pooling": qrnn.pooling,
 		"zoneout": qrnn.zoneout,
-		"wstd": qrnn.wstd,
+		"wgain": qrnn.wgain,
 		"densely_connected": qrnn.densely_connected,
 		"ignore_label": qrnn.ignore_label,
 	}
@@ -75,7 +75,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = RNNModel(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wstd"], params["densely_connected"], params["ignore_label"])
+		qrnn = RNNModel(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wgain"], params["densely_connected"], params["ignore_label"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -86,7 +86,7 @@ def load_model(dirname):
 		return None
 
 class RNNModel(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wstd=1, densely_connected=False, ignore_label=None):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wgain=1, densely_connected=False, ignore_label=None):
 		super(RNNModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
 			dense=L.Linear(ndim_h, vocab_size),
@@ -99,13 +99,13 @@ class RNNModel(Chain):
 		self.kernel_size = kernel_size
 		self.pooling = pooling
 		self.zoneout = zoneout
-		self.wstd = wstd
+		self.wgain = wgain
 		self.ignore_label = ignore_label
 		self.densely_connected = densely_connected
 
-		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("qrnn{}".format(i + 1), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("qrnn{}".format(i + 1), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
 	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))

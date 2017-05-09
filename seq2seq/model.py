@@ -55,7 +55,7 @@ def save_model(dirname, model):
 		"num_layers": model.num_layers,
 		"pooling": model.pooling,
 		"zoneout": model.zoneout,
-		"wstd": model.wstd,
+		"wgain": model.wgain,
 		"attention": isinstance(model, AttentiveSeq2SeqModel),
 	}
 	with open(param_filename, "w") as f:
@@ -73,7 +73,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		model = seq2seq(vocab_size_enc=params["vocab_size_enc"], vocab_size_dec=params["vocab_size_dec"], ndim_embedding=params["ndim_embedding"], num_layers=params["num_layers"], ndim_h=params["ndim_h"], pooling=params["pooling"], zoneout=params["zoneout"], wstd=params["wstd"], densely_connected=params["densely_connected"], attention=params["attention"])
+		model = seq2seq(vocab_size_enc=params["vocab_size_enc"], vocab_size_dec=params["vocab_size_dec"], ndim_embedding=params["ndim_embedding"], num_layers=params["num_layers"], ndim_h=params["ndim_h"], pooling=params["pooling"], zoneout=params["zoneout"], wgain=params["wgain"], densely_connected=params["densely_connected"], attention=params["attention"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -83,13 +83,13 @@ def load_model(dirname):
 	else:
 		return None
 
-def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, densely_connected=False, attention=False):
+def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wgain=1, densely_connected=False, attention=False):
 	if attention:
-		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd, densely_connected)
-	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wstd, densely_connected)
+		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wgain, densely_connected)
+	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wgain, densely_connected)
 
 class Seq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, densely_connected=False):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wgain=1, densely_connected=False):
 		super(Seq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -108,15 +108,15 @@ class Seq2SeqModel(Chain):
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.densely_connected = densely_connected
-		self.wstd = wstd
+		self.wgain = wgain
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_encoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_encoder_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
-		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
@@ -254,7 +254,7 @@ class Seq2SeqModel(Chain):
 		return Y
 
 class AttentiveSeq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wstd=1, densely_connected=False):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wgain=1, densely_connected=False):
 		super(AttentiveSeq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -273,19 +273,19 @@ class AttentiveSeq2SeqModel(Chain):
 		self.densely_connected = densely_connected
 		self.pooling = pooling
 		self.zoneout = zoneout
-		self.wstd = wstd
+		self.wgain = wgain
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_encoder_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_encoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_encoder_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
 		if num_layers == 1:
-			self.add_link("dec0", L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec0", L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, zoneout=zoneout, wgain=wgain))
 		else:
-			self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, pooling=pooling, zoneout=zoneout, wstd=wstd))
+			self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_decoder_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
 			for i in xrange(num_layers - 2):
-				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, pooling=pooling, zoneout=zoneout, wstd=wstd))
-			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, zoneout=zoneout, wstd=wstd))
+				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_h, ndim_h, kernel_size=self.kernel_size_decoder_other, zoneout=zoneout, wgain=wgain))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))

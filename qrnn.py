@@ -1,14 +1,15 @@
 from __future__ import division
 from __future__ import print_function
 from six.moves import xrange
+import math
 import numpy as np
 from chainer import cuda, Variable, function, link, functions, links, initializers
 from chainer.utils import type_check
 from chainer.links import EmbedID, Linear, BatchNormalization
 
 class Zoneout(function.Function):
-	def __init__(self, zoneout_ratio):
-		self.zoneout_ratio = zoneout_ratio
+	def __init__(self, p):
+		self.p = p
 
 	def check_type_forward(self, in_types):
 		type_check.expect(in_types.size() == 1)
@@ -18,9 +19,9 @@ class Zoneout(function.Function):
 		if not hasattr(self, "mask"):
 			xp = cuda.get_array_module(*x)
 			if xp == np:
-				flag = xp.random.rand(*x[0].shape) >= self.zoneout_ratio
+				flag = xp.random.rand(*x[0].shape) >= self.p
 			else:
-				flag = xp.random.rand(*x[0].shape, dtype=np.float32) >= self.zoneout_ratio
+				flag = xp.random.rand(*x[0].shape, dtype=np.float32) >= self.p
 			self.mask = flag
 		return x[0] * self.mask,
 
@@ -31,8 +32,9 @@ def zoneout(x, ratio=.5):
 	return Zoneout(ratio)(x)
 
 class QRNN(link.Chain):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wstd=1):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1):
 		self.num_split = len(pooling) + 1
+		wstd = kernel_size * out_channels * wgain
 		super(QRNN, self).__init__(W=links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.Normal(wstd)))
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
@@ -140,10 +142,11 @@ class QRNNEncoder(QRNN):
 	pass
 
 class QRNNDecoder(QRNN):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wstd=1):
-		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio, wstd=wstd)
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1):
+		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio, wgain=wgain)
 		self.num_split = len(pooling) + 1
-		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels))
+		wstd = math.sqrt(1. / out_channels / self.num_split)
+		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
 
 	# ht_enc is the last encoder state
 	def __call__(self, X, ht_enc, test=False):
@@ -190,9 +193,10 @@ class QRNNDecoder(QRNN):
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):
-	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wstd=1):
-		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio, wstd=wstd)
-		self.add_link('o', links.Linear(2 * out_channels, out_channels))
+	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wgain=1):
+		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio, wgain=wgain)
+		wstd = math.sqrt(1. / out_channels / 2.)
+		self.add_link('o', links.Linear(2 * out_channels, out_channels, initialW=initializers.Normal(wstd)))
 
 	# X is the input of the decoder
 	# ht_enc is the last encoder state

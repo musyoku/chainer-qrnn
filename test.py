@@ -1,6 +1,7 @@
 # encoding: utf-8
 from __future__ import division
 from __future__ import print_function
+from six.moves import xrange
 import numpy as np
 from qrnn import QRNN, QRNNEncoder, QRNNDecoder, QRNNGlobalAttentiveDecoder
 
@@ -29,6 +30,7 @@ def test_decoder():
 	for t in xrange(dec_shape[2]):
 		y = decoder.forward_one_step(dec_data[:, :, :t+1], ht)
 		assert np.sum((y.data - Y.data[:, :, :t+1]) ** 2) == 0
+		print("t = {} OK".format(t))
 
 
 def test_attentive_decoder():
@@ -49,13 +51,12 @@ def test_attentive_decoder():
 	H = encoder(enc_data, skip_mask)
 	ht = encoder.get_last_hidden_state()
 	Y = decoder(dec_data, ht, H, skip_mask)
-	print(Y.data)
 
 	decoder.reset_state()
 	for t in xrange(dec_shape[2]):
 		y = decoder.forward_one_step(dec_data[:, :, :t+1], ht, H, skip_mask)
-		print(y.data)
 		assert np.sum((y.data - Y.data[:, :, :t+1]) ** 2) == 0
+		print("t = {} OK".format(t))
 
 
 
