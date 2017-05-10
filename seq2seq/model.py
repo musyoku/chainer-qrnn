@@ -55,6 +55,7 @@ def save_model(dirname, model):
 		"num_layers": model.num_layers,
 		"pooling": model.pooling,
 		"zoneout": model.zoneout,
+		"dropout": model.dropout,
 		"wgain": model.wgain,
 		"attention": isinstance(model, AttentiveSeq2SeqModel),
 	}
@@ -73,7 +74,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		model = seq2seq(vocab_size_enc=params["vocab_size_enc"], vocab_size_dec=params["vocab_size_dec"], ndim_embedding=params["ndim_embedding"], num_layers=params["num_layers"], ndim_h=params["ndim_h"], pooling=params["pooling"], zoneout=params["zoneout"], wgain=params["wgain"], densely_connected=params["densely_connected"], attention=params["attention"])
+		model = seq2seq(vocab_size_enc=params["vocab_size_enc"], vocab_size_dec=params["vocab_size_dec"], ndim_embedding=params["ndim_embedding"], num_layers=params["num_layers"], ndim_h=params["ndim_h"], pooling=params["pooling"], dropout=params["dropout"], zoneout=params["zoneout"], wgain=params["wgain"], densely_connected=params["densely_connected"], attention=params["attention"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -83,13 +84,13 @@ def load_model(dirname):
 	else:
 		return None
 
-def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wgain=1, densely_connected=False, attention=False):
+def seq2seq(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", dropout=False, zoneout=False, wgain=1, densely_connected=False, attention=False):
 	if attention:
-		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wgain, densely_connected)
-	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, zoneout, wgain, densely_connected)
+		return AttentiveSeq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, dropout, zoneout, wgain, densely_connected)
+	return Seq2SeqModel(vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling, dropout, zoneout, wgain, densely_connected)
 
 class Seq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wgain=1, densely_connected=False):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", dropout=False, zoneout=False, wgain=1, densely_connected=False):
 		super(Seq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -105,6 +106,8 @@ class Seq2SeqModel(Chain):
 		self.kernel_size_other = 4
 		self.pooling = pooling
 		self.zoneout = zoneout
+		self.dropout = dropout
+		self.dropout_ratio = 0.5
 		self.densely_connected = densely_connected
 		self.wgain = wgain
 
@@ -138,6 +141,8 @@ class Seq2SeqModel(Chain):
 	def _forward_encoder_layer(self, layer_index, in_data, skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		encoder = self.get_encoder(layer_index)
 		out_data = encoder(in_data, skip_mask=skip_mask, test=test)
 		if test:
@@ -147,6 +152,8 @@ class Seq2SeqModel(Chain):
 	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states, test=False):
 		if test:
 			in_data.unchain_backward()
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		decoder = self.get_decoder(layer_index)
 		out_data = decoder(in_data, encoder_last_hidden_states, test=test)
 		if test:
@@ -167,6 +174,9 @@ class Seq2SeqModel(Chain):
 			in_data.append(out_data)
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
+
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
 
 		if test:
 			out_data.unchain_backward()
@@ -198,6 +208,9 @@ class Seq2SeqModel(Chain):
 		if return_last:
 			out_data = out_data[:, :, -1, None]
 
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
@@ -209,6 +222,8 @@ class Seq2SeqModel(Chain):
 	def _forward_decoder_layer_one_step(self, layer_index, in_data, encoder_last_hidden_states, test=False):
 		if test:
 			in_data.unchain_backward()
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		decoder = self.get_decoder(layer_index)
 		out_data = decoder.forward_one_step(in_data, encoder_last_hidden_states, test=test)
 		if test:
@@ -233,6 +248,10 @@ class Seq2SeqModel(Chain):
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 		out_data = out_data[:, :, -1, None]
+
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
@@ -242,7 +261,7 @@ class Seq2SeqModel(Chain):
 		return Y
 
 class AttentiveSeq2SeqModel(Chain):
-	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", zoneout=False, wgain=1, densely_connected=False):
+	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, num_layers, ndim_h, pooling="fo", dropout=False, zoneout=False, wgain=1, densely_connected=False):
 		super(AttentiveSeq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
@@ -259,6 +278,8 @@ class AttentiveSeq2SeqModel(Chain):
 		self.densely_connected = densely_connected
 		self.pooling = pooling
 		self.zoneout = zoneout
+		self.dropout = dropout
+		self.dropout_ratio = 0.5
 		self.wgain = wgain
 
 		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
@@ -295,6 +316,8 @@ class AttentiveSeq2SeqModel(Chain):
 	def _forward_encoder_layer(self, layer_index, in_data, skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		encoder = self.get_encoder(layer_index)
 		out_data = encoder(in_data, skip_mask=skip_mask, test=test)
 		if test:
@@ -311,6 +334,9 @@ class AttentiveSeq2SeqModel(Chain):
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_encoder_layer(layer_index, out_data, skip_mask=skip_mask, test=test)
 
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+
 		if test:
 			out_data.unchain_backward()
 
@@ -326,7 +352,8 @@ class AttentiveSeq2SeqModel(Chain):
 	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
-
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		decoder = self.get_decoder(layer_index)
 		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
 			out_data = decoder(in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask, test=test)
@@ -359,6 +386,9 @@ class AttentiveSeq2SeqModel(Chain):
 		if return_last:
 			out_data = out_data[:, :, -1, None]
 
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
@@ -370,6 +400,8 @@ class AttentiveSeq2SeqModel(Chain):
 	def _forward_decoder_layer_one_step(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None, test=False):
 		if test:
 			in_data.unchain_backward()
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 
 		decoder = self.get_decoder(layer_index)
 		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
@@ -402,6 +434,10 @@ class AttentiveSeq2SeqModel(Chain):
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 		out_data = out_data[:, :, -1, None]
+			
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize, self.ndim_h))
 		Y = self.dense(out_data)
 

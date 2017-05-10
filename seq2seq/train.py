@@ -79,7 +79,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, zoneout=args.zoneout, wstd=args.wstd, densely_connected=args.densely_connected, attention=args.attention)
+		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, dropout=args.dropout, zoneout=args.zoneout, wgain=args.wgain, densely_connected=args.densely_connected, attention=args.attention)
 	if args.gpu_device >= 0:
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -158,7 +158,7 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--seed", type=int, default=0)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wstd", "-w", type=float, default=0.02)
+	parser.add_argument("--wgain", "-w", type=float, default=0.01)
 	parser.add_argument("--train-split", type=float, default=0.9)
 	parser.add_argument("--dev-split", type=float, default=0.05)
 	parser.add_argument("--source-filename", "-source", default=None)
@@ -167,6 +167,7 @@ if __name__ == "__main__":
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
+	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
 	parser.add_argument("--attention", default=False, action="store_true")
 	args = parser.parse_args()
