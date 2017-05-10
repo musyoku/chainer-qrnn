@@ -75,7 +75,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = RNNModel(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["wgain"], params["densely_connected"], params["ignore_label"])
+		qrnn = RNNModel(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["dropout"], params["wgain"], params["densely_connected"], params["ignore_label"])
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
@@ -86,7 +86,7 @@ def load_model(dirname):
 		return None
 
 class RNNModel(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, wgain=1, densely_connected=False, ignore_label=None):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, dropout=False, wgain=1, densely_connected=False, ignore_label=None):
 		super(RNNModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
 			dense=L.Linear(ndim_h, vocab_size),
@@ -99,6 +99,8 @@ class RNNModel(Chain):
 		self.kernel_size = kernel_size
 		self.pooling = pooling
 		self.zoneout = zoneout
+		self.dropout = dropout
+		self.dropout_ratio = 0.5
 		self.wgain = wgain
 		self.ignore_label = ignore_label
 		self.densely_connected = densely_connected
@@ -117,6 +119,8 @@ class RNNModel(Chain):
 	def _forward_layer(self, layer_index, in_data, test=False):
 		if test:
 			in_data.unchain_backward()
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		rnn = self.get_rnn_layer(layer_index)
 		out_data = rnn(in_data, test=test)
 		if test:
@@ -145,6 +149,9 @@ class RNNModel(Chain):
 		if return_last:
 			out_data = out_data[:, :, -1, None]
 
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
@@ -157,6 +164,8 @@ class RNNModel(Chain):
 		if test:
 			in_data.unchain_backward()
 		rnn = self.get_rnn_layer(layer_index)
+		if self.dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
 		out_data = rnn.forward_one_step(in_data, test=test)
 		if test:
 			out_data.unchain_backward()
@@ -186,6 +195,9 @@ class RNNModel(Chain):
 
 		if test:
 			out_data.unchain_backward()
+
+		if self.dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
 			
 		out_data = out_data[:, :, -1, None]
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
