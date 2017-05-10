@@ -54,7 +54,9 @@ def main(args):
 			min_num_data = len(data)
 	repeats = []
 	for data in train_buckets:
-		repeats.append(len(data) // min_num_data + 1)
+		repeat = len(data) // min_num_data
+		repeat = repeat + 1 if repeat == 0 else repeat
+		repeats.append(repeat)
 
 	num_updates_per_iteration = 0
 	for repeat, data in zip(repeats, train_buckets):
@@ -77,6 +79,11 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
+	min_learning_rate = 1e-6
+	prev_ppl = None
+
+	def mean(l):
+		return sum(l) / len(l)
 
 	# training
 	for epoch in xrange(1, args.epoch + 1):
@@ -100,26 +107,28 @@ def main(args):
 
 			if itr % args.interval == 0 or itr == num_iteration:
 				save_model(args.model_dir, model)
-				# show log
-				def mean(l):
-					return sum(l) / len(l)
-				sys.stdout.write("\r" + stdout.CLEAR)
-				sys.stdout.flush()
-				print_bold("	accuracy (sampled train)")
-				acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
-				print("	", mean(acc_train), acc_train)
-				print_bold("	accuracy (dev)")
-				acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
-				print("	", mean(acc_dev), acc_dev)
-				print_bold("	ppl (sampled train)")
-				ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
-				print("	", mean(ppl_train), ppl_train)
-				print_bold("	ppl (dev)")
-				ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
-				print("	", mean(ppl_dev), ppl_dev)
 
+		# show log
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
+		print_bold("	accuracy (sampled train)")
+		acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
+		print("	", mean(acc_train), acc_train)
+		print_bold("	accuracy (dev)")
+		acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
+		print("	", mean(acc_dev), acc_dev)
+		print_bold("	ppl (sampled train)")
+		ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
+		print("	", mean(ppl_train), ppl_train)
+		print_bold("	ppl (dev)")
+		ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
+		ppl_dev_mean = mean(ppl_dev)
+		print("	", ppl_dev_mean, ppl_dev)
+
+		# decay learning rate
+		if prev_ppl is not None and ppl_dev_mean >= prev_ppl and optimizer.alpha > min_learning_rate:
+			optimizer.alpha *= 0.25
+		prev_ppl = ppl_dev_mean
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -138,7 +147,7 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=0.01)
-	parser.add_argument("--learning-rate", "-lr", type=float, default=0.001)
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
 	parser.add_argument("--buckets-limit", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--text-filename", "-f", default=None)

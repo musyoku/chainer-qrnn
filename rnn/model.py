@@ -56,6 +56,7 @@ def save_model(dirname, qrnn):
 		"kernel_size": qrnn.kernel_size,
 		"pooling": qrnn.pooling,
 		"zoneout": qrnn.zoneout,
+		"dropout": qrnn.dropout,
 		"wgain": qrnn.wgain,
 		"densely_connected": qrnn.densely_connected,
 		"ignore_label": qrnn.ignore_label,
