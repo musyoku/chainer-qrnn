@@ -2,7 +2,7 @@
 from __future__ import division
 from __future__ import print_function
 from six.moves import xrange
-import argparse, sys, os, codecs, random, math
+import argparse, sys, os, codecs, random, math, time
 import numpy as np
 import chainer
 import chainer.functions as F
@@ -86,16 +86,23 @@ def main(args):
 
 	# setup an optimizer
 	if args.eve:
-		optimizer = Eve(alpha=0.001, beta1=0.9)
+		optimizer = Eve(alpha=args.learning_rate, beta1=0.9)
 	else:
-		optimizer = optimizers.Adam(alpha=0.001, beta1=0.9)
+		optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
+	min_learning_rate = 1e-7
+	prev_wer = None
+	total_time = 0
+
+	def mean(l):
+		return sum(l) / len(l)
 
 	# training
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
+		start_time = time.time()
 		for itr in xrange(1, num_iteration + 1):
 			for repeat, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
 				for r in xrange(repeat):
@@ -137,13 +144,19 @@ def main(args):
 		show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, argmax=True)
 		print_bold("WER (sampled train)")
 		wer_train = compute_random_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), sample_size=args.batchsize, argmax=True)
-		print(wer_train)
+		print(mean(wer_train), wer_train)
 		print_bold("WER (dev)")
 		wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
-		print(wer_dev)
+		mean_wer_dev = mean(wer_dev)
+		print(mean_wer_dev, wer_dev)
+		elapsed_time = (time.time() - start_time) / 60.
+		total_time += elapsed_time
+		print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
-		sys.stdout.write("\r" + stdout.CLEAR)
-		sys.stdout.flush()
+		# decay learning rate
+		if prev_wer is not None and mean_wer_dev >= prev_wer and optimizer.alpha > min_learning_rate:
+			optimizer.alpha *= 0.5
+		prev_wer = mean_wer_dev
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -152,9 +165,9 @@ if __name__ == "__main__":
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=5e-5) 
-	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
+	parser.add_argument("--ndim-h", "-nh", type=int, default=320)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
-	parser.add_argument("--num-layers", "-layers", type=int, default=2)
+	parser.add_argument("--num-layers", "-layers", type=int, default=4)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--seed", type=int, default=0)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
@@ -165,6 +178,7 @@ if __name__ == "__main__":
 	parser.add_argument("--target-filename", "-target", default=None)
 	parser.add_argument("--buckets-limit", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")

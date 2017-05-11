@@ -2,7 +2,7 @@
 from __future__ import division
 from __future__ import print_function
 from six.moves import xrange
-import argparse, sys, os, codecs, random, math
+import argparse, sys, os, codecs, random, math, time
 import numpy as np
 import chainer
 import chainer.functions as F
@@ -79,8 +79,9 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-6
+	min_learning_rate = 1e-7
 	prev_ppl = None
+	total_time = 0
 
 	def mean(l):
 		return sum(l) / len(l)
@@ -88,6 +89,7 @@ def main(args):
 	# training
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
+		start_time = time.time()
 		for itr in xrange(1, num_iteration + 1):
 			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
 			sys.stdout.flush()
@@ -124,10 +126,13 @@ def main(args):
 		ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
 		ppl_dev_mean = mean(ppl_dev)
 		print("	", ppl_dev_mean, ppl_dev)
+		elapsed_time = (time.time() - start_time) / 60.
+		total_time += elapsed_time
+		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
 		if prev_ppl is not None and ppl_dev_mean >= prev_ppl and optimizer.alpha > min_learning_rate:
-			optimizer.alpha *= 0.25
+			optimizer.alpha *= 0.5
 		prev_ppl = ppl_dev_mean
 
 if __name__ == "__main__":
@@ -147,7 +152,7 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=0.01)
-	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
 	parser.add_argument("--buckets-limit", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--text-filename", "-f", default=None)
