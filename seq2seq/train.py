@@ -92,7 +92,7 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-7
+	min_learning_rate = 1e-5
 	prev_wer = None
 	total_time = 0
 
