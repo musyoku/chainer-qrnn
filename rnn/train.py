@@ -79,7 +79,7 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-5
+	min_learning_rate = 1e-4
 	prev_ppl = None
 	total_time = 0
 
@@ -141,7 +141,7 @@ if __name__ == "__main__":
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
-	parser.add_argument("--weight-decay", "-wd", type=float, default=5e-5) 
+	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)

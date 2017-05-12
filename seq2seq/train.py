@@ -92,7 +92,7 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-5
+	min_learning_rate = 1e-4
 	prev_wer = None
 	total_time = 0
 
@@ -183,6 +183,6 @@ if __name__ == "__main__":
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
 	parser.add_argument("--eve", default=False, action="store_true")
-	parser.add_argument("--attention", default=False, action="store_true")
+	parser.add_argument("--attention", "-attention", default=False, action="store_true")
 	args = parser.parse_args()
 	main(args)
