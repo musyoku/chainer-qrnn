@@ -53,6 +53,7 @@ def save_model(dirname, model):
 		"ndim_embedding": model.ndim_embedding,
 		"ndim_h": model.ndim_h,
 		"num_layers": model.num_layers,
+		"densely_connected": model.densely_connected,
 		"pooling": model.pooling,
 		"zoneout": model.zoneout,
 		"dropout": model.dropout,
