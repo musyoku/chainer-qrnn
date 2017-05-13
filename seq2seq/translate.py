@@ -122,8 +122,8 @@ def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, 
 	skip_mask = xp.repeat(skip_mask, beam_width, axis=0)
 
 
-	backward_table_batch = np.zeros((beam_width * batchsize, max_predict_length), dtype=np.int32)
-	token_table_batch = np.zeros((beam_width * batchsize, max_predict_length), dtype=np.int32)
+	backward_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
+	token_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
 	sum_log_p_batch = xp.zeros((batchsize * beam_width, 1), dtype=xp.float32)
 
 	for t in xrange(max_predict_length):
@@ -152,7 +152,7 @@ def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, 
 			x[start:end, -1] = token_table[:, t]
 
 	# backward
-	result = xp.zeros((batchsize, max_predict_length), dtype=xp.int32)
+	result = np.zeros((batchsize, max_predict_length), dtype=np.int32)
 	for b in xrange(batchsize):
 		start = b * beam_width
 		end = (b + 1) * beam_width
@@ -282,6 +282,9 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	assert model is not None
+	if args.gpu_device >= 0:
+		cuda.get_device(args.gpu_device).use()
+		model.to_gpu()
 
 	show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, batchsize=10, beam_width=4)
 

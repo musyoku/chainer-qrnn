@@ -68,13 +68,15 @@ def main(args):
 		if min_num_data == 0 or len(data) < min_num_data:
 			min_num_data = len(data)
 	repeats = []
+	sum_data = 0
 	for data in source_buckets_train:
 		repeats.append(len(data) // min_num_data + 1)
+		sum_data += len(data)
 
 	num_updates_per_iteration = 0
 	for repeat, data in zip(repeats, source_buckets_train):
 		num_updates_per_iteration += repeat * args.batchsize
-	num_iteration = len(source_dataset_train) // num_updates_per_iteration + 1
+	num_iteration = sum_data // num_updates_per_iteration + 1
 
 	# init
 	model = load_model(args.model_dir)
