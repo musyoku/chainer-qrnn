@@ -9,7 +9,7 @@ from chainer.functions.activation import log_softmax
 from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
-from translate import translate_batch
+from translate import translate_batch, _translate_batch
 
 class SoftmaxCrossEntropy(functions.loss.softmax_cross_entropy.SoftmaxCrossEntropy):
 
@@ -226,9 +226,9 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
-	print_bold("WER (train)")
-	wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
-	print(wer_train)
+	# print_bold("WER (train)")
+	# wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+	# print(wer_train)
 	print_bold("WER (dev)")
 	wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
 	print(wer_dev)

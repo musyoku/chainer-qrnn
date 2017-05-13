@@ -89,7 +89,53 @@ def _beam_search(model, t, beam_width, log_p_t_beam, sum_log_p_beam, vocab_size,
 		backward = index // vocab_size
 		backward_table[beam, t] = backward
 		token_table[beam, t] = token
-		sum_log_p_beam[beam] += log_p_t_beam[beam, token]
+		sum_log_p_beam[beam] += log_p_t_beam[backward, token]
+
+def _translate_batch(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
+	xp = model.xp
+	skip_mask = source_batch != ID_PAD
+	batchsize = source_batch.shape[0]
+
+	# to gpu
+	if xp is cuda.cupy:
+		source_batch = cuda.to_gpu(source_batch)
+		skip_mask = cuda.to_gpu(skip_mask)
+
+	word_ids = xp.arange(0, vocab_size, dtype=xp.int32)
+
+	model.reset_state()
+	token = ID_GO
+	x = xp.asarray([[token]]).astype(xp.int32)
+	x = xp.broadcast_to(x, (batchsize, 1))
+
+	# get encoder's last hidden states
+	if isinstance(model, AttentiveSeq2SeqModel):
+		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
+	else:
+		encoder_last_hidden_states = model.encode(source_batch, skip_mask, test=True)
+
+	while x.shape[1] < max_predict_length:
+		if isinstance(model, AttentiveSeq2SeqModel):
+			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True)
+		else:
+			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
+		p = F.softmax(u)	# convert to probability
+
+		# concatenate
+		if xp is np:
+			x = xp.append(x, xp.zeros((batchsize, 1), dtype=xp.int32), axis=1)
+		else:
+			x = xp.concatenate((x, xp.zeros((batchsize, 1), dtype=xp.int32)), axis=1)
+
+		for n in xrange(batchsize):
+			pn = p.data[n]
+
+			# argmax or sampling
+			token = xp.argmax(pn)
+
+			x[n, -1] = token
+
+	return x
 
 def translate_batch(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
 	xp = model.xp
