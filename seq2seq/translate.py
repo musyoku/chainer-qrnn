@@ -91,7 +91,7 @@ def _beam_search(model, t, beam_width, log_p_t_beam, sum_log_p_beam, vocab_size,
 		token_table[beam, t] = token
 		sum_log_p_beam[beam] += log_p_t_beam[beam, token]
 
-def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, vocab_inv_target, beam_width=8, source_reversed=True):
+def translate_batch(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
 	xp = model.xp
 	skip_mask = source_batch != ID_PAD
 	batchsize = source_batch.shape[0]
@@ -101,7 +101,7 @@ def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, 
 		source_batch = cuda.to_gpu(source_batch)
 		skip_mask = cuda.to_gpu(skip_mask)
 
-	word_ids = xp.arange(0, len(vocab_inv_target), dtype=xp.int32)
+	word_ids = xp.arange(0, vocab_size, dtype=xp.int32)
 
 	model.reset_state()
 	token = ID_GO
@@ -148,7 +148,7 @@ def _translate_batch(model, source_batch, max_predict_length, vocab_inv_source, 
 			sum_log_p = sum_log_p_batch[start:end]
 			backward_table = backward_table_batch[start:end]
 			token_table = token_table_batch[start:end]
-			_beam_search(model, t, beam_width, log_p, sum_log_p, len(vocab_inv_target), backward_table, token_table)
+			_beam_search(model, t, beam_width, log_p, sum_log_p, vocab_size, backward_table, token_table)
 			x[start:end, -1] = token_table[:, t]
 
 	# backward
@@ -229,7 +229,7 @@ def show_source_target_translation(model, source_buckets, target_buckets, vocab_
 			target_sections = [target_bucket]
 
 		for source_batch, target_batch in zip(source_sections, target_sections):
-			translation_batch = _translate_batch(model, source_batch, target_batch.shape[1] * 2, vocab_inv_source, vocab_inv_target, beam_width)
+			translation_batch = translate_batch(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
 			show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
 
 def show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, batchsize=10, beam_width=8):
@@ -247,7 +247,7 @@ def show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_t
 			source_sections = [source_bucket]
 
 		for source_batch in source_sections:
-			translation_batch = _translate_batch(model, source_batch, source_batch.shape[1] * 2, vocab_inv_source, vocab_inv_target, beam_width)
+			translation_batch = translate_batch(model, source_batch, source_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
 			show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch)
 
 def show_random_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=3, beam_width=8):
@@ -255,7 +255,7 @@ def show_random_source_target_translation(model, source_buckets, target_buckets,
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
 		# sample minibatch
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, num_translate)
-		translation_batch = _translate_batch(model, source_batch, target_batch.shape[1] * 2, vocab_inv_source, vocab_inv_target, beam_width)
+		translation_batch = translate_batch(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
 		show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
 
 def main(args):

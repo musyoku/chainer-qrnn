@@ -9,6 +9,7 @@ from chainer.functions.activation import log_softmax
 from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
+from translate import translate_batch
 
 class SoftmaxCrossEntropy(functions.loss.softmax_cross_entropy.SoftmaxCrossEntropy):
 
@@ -96,56 +97,12 @@ def compute_word_error_rate_of_sequence(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=True):
+def _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width=8):
 	xp = model.xp
 	num_calculation = 0
 	sum_wer = 0
-	skip_mask = source_batch != ID_PAD
 	batchsize = source_batch.shape[0]
-	target_seq_length = target_batch.shape[1]
-
-	# to gpu
-	if xp is cuda.cupy:
-		source_batch = cuda.to_gpu(source_batch)
-		target_batch = cuda.to_gpu(target_batch)
-		skip_mask = cuda.to_gpu(skip_mask)
-
-	word_ids = xp.arange(0, target_vocab_size, dtype=xp.int32)
-
-	model.reset_state()
-	token = ID_GO
-	x = xp.asarray([[token]]).astype(xp.int32)
-	x = xp.broadcast_to(x, (batchsize, 1))
-
-	# get encoder's last hidden states
-	if isinstance(model, AttentiveSeq2SeqModel):
-		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
-	else:
-		encoder_last_hidden_states = model.encode(source_batch, skip_mask, test=True)
-
-	while x.shape[1] < target_seq_length * 2:
-		if isinstance(model, AttentiveSeq2SeqModel):
-			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True)
-		else:
-			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
-		p = F.softmax(u)	# convert to probability
-
-		# concatenate
-		if xp is np:
-			x = xp.append(x, xp.zeros((batchsize, 1), dtype=xp.int32), axis=1)
-		else:
-			x = xp.concatenate((x, xp.zeros((batchsize, 1), dtype=xp.int32)), axis=1)
-
-		for n in xrange(batchsize):
-			pn = p.data[n]
-
-			# argmax or sampling
-			if argmax:
-				token = xp.argmax(pn)
-			else:
-				token = xp.random.choice(word_ids, size=1, p=pn)[0]
-
-			x[n, -1] = token
+	x = translate_batch(model, source_batch, target_batch.shape[1] * 2, target_vocab_size, beam_width)
 
 	for n in xrange(batchsize):
 		target_tokens = []
@@ -176,7 +133,7 @@ def _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size
 
 	return sum_wer / num_calculation
 
-def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, batchsize=100, argmax=True):
+def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, batchsize=100, beam_width=8):
 	result = []
 	for bucket_index, (source_bucket, target_bucket) in enumerate(zip(source_buckets, target_buckets)):
 		num_calculation = 0
@@ -197,7 +154,7 @@ def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, b
 		for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
 			sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
 			sys.stdout.flush()
-			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=argmax)
+			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
 			sum_wer += mean_wer
 			num_calculation += 1
 
@@ -208,7 +165,7 @@ def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, b
 
 	return result
 
-def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_size, sample_size=100, argmax=True):
+def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_size, sample_size=100, beam_width=8):
 	xp = model.xp
 	result = []
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
@@ -216,7 +173,7 @@ def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, sample_size)
 		
 		# compute WER
-		mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, argmax=argmax)
+		mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
 
 		result.append(mean_wer * 100)
 
@@ -270,13 +227,13 @@ def main(args):
 		model.to_gpu()
 
 	print_bold("WER (train)")
-	wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+	wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
 	print(wer_train)
 	print_bold("WER (dev)")
-	wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+	wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
 	print(wer_dev)
 	print_bold("WER (test)")
-	wer_test = compute_mean_wer(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), batchsize=args.batchsize, argmax=True)
+	wer_test = compute_mean_wer(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
 	print(wer_test)
 
 if __name__ == "__main__":
