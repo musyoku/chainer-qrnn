@@ -167,7 +167,6 @@ def translate_batch(model, source_batch, max_predict_length, vocab_size, beam_wi
 		encoder_last_layer_outputs = xp.repeat(encoder_last_layer_outputs.data, beam_width, axis=0)
 	skip_mask = xp.repeat(skip_mask, beam_width, axis=0)
 
-
 	backward_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
 	token_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
 	sum_log_p_batch = xp.zeros((batchsize * beam_width, 1), dtype=xp.float32)

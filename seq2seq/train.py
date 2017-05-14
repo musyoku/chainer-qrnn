@@ -94,7 +94,7 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-4
+	min_learning_rate = 1e-3
 	prev_wer = None
 	total_time = 0
 
@@ -144,11 +144,11 @@ def main(args):
 		show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
 		print_bold("translate (dev)")
 		show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
-		print_bold("WER (sampled train)")
-		wer_train = compute_random_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), sample_size=args.batchsize, beam_width=8)
+		print_bold("WER (train)")
+		wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
 		print(mean(wer_train), wer_train)
 		print_bold("WER (dev)")
-		wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+		wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=8)
 		mean_wer_dev = mean(wer_dev)
 		print(mean_wer_dev, wer_dev)
 		elapsed_time = (time.time() - start_time) / 60.
@@ -166,7 +166,7 @@ if __name__ == "__main__":
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
-	parser.add_argument("--weight-decay", "-wd", type=float, default=5e-5) 
+	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
 	parser.add_argument("--ndim-h", "-nh", type=int, default=320)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=4)

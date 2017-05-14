@@ -9,7 +9,7 @@ from chainer.functions.activation import log_softmax
 from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
-from translate import translate_batch, _translate_batch
+from translate import translate_batch
 
 class SoftmaxCrossEntropy(functions.loss.softmax_cross_entropy.SoftmaxCrossEntropy):
 
@@ -97,7 +97,7 @@ def compute_word_error_rate_of_sequence(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width=8):
+def compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width=8):
 	xp = model.xp
 	num_calculation = 0
 	sum_wer = 0
@@ -154,7 +154,7 @@ def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, b
 		for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
 			sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
 			sys.stdout.flush()
-			mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
+			mean_wer = compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
 			sum_wer += mean_wer
 			num_calculation += 1
 
@@ -173,7 +173,7 @@ def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, sample_size)
 		
 		# compute WER
-		mean_wer = _compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
+		mean_wer = compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
 
 		result.append(mean_wer * 100)
 
@@ -226,9 +226,9 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
-	# print_bold("WER (train)")
-	# wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
-	# print(wer_train)
+	print_bold("WER (train)")
+	wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+	print(wer_train)
 	print_bold("WER (dev)")
 	wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
 	print(wer_dev)

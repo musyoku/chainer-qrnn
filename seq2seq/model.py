@@ -103,8 +103,9 @@ class Seq2SeqModel(Chain):
 		self.ndim_embedding = ndim_embedding
 		self.num_layers = num_layers
 		self.ndim_h = ndim_h
-		self.kernel_size_first = 6
-		self.kernel_size_other = 4
+		self.encoder_kernel_size_first = 6
+		self.encoder_kernel_size_other = 2
+		self.decoder_kernel_size = 1
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.dropout = dropout
@@ -112,13 +113,13 @@ class Seq2SeqModel(Chain):
 		self.densely_connected = densely_connected
 		self.wgain = wgain
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.encoder_kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.encoder_kernel_size_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
-		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
@@ -235,8 +236,13 @@ class Seq2SeqModel(Chain):
 		assert len(encoder_last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
+		ksize = self.decoder_kernel_size
 
-		xt = X[:, -1, None]
+		if seq_length < ksize:
+			self.reset_state()
+			return self.decode(X, encoder_last_hidden_states, test=test, return_last=True)
+
+		xt = X[:, -ksize:]
 		enmbedding = self.decoder_embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
@@ -274,8 +280,9 @@ class AttentiveSeq2SeqModel(Chain):
 		self.ndim_embedding = ndim_embedding
 		self.num_layers = num_layers
 		self.ndim_h = ndim_h
-		self.kernel_size_first = 6
-		self.kernel_size_other = 4
+		self.encoder_kernel_size_first = 6
+		self.encoder_kernel_size_other = 2
+		self.decoder_kernel_size = 2
 		self.densely_connected = densely_connected
 		self.pooling = pooling
 		self.zoneout = zoneout
@@ -283,17 +290,17 @@ class AttentiveSeq2SeqModel(Chain):
 		self.dropout_ratio = 0.5
 		self.wgain = wgain
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.encoder_kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.kernel_size_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.encoder_kernel_size_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
 		if num_layers == 1:
-			self.add_link("dec0", L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, zoneout=zoneout, wgain=wgain))
+			self.add_link("dec0", L.QRNNGlobalAttentiveDecoder(ndim_embedding, ndim_h, kernel_size=self.decoder_kernel_size, zoneout=zoneout, wgain=wgain))
 		else:
-			self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
 			for i in xrange(num_layers - 2):
-				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, pooling=pooling, zoneout=zoneout, wgain=wgain))
-			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_h, ndim_h, zoneout=zoneout, wgain=wgain))
+				self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("dec{}".format(num_layers - 1), L.QRNNGlobalAttentiveDecoder(ndim_h, ndim_h, kernel_size=self.decoder_kernel_size, zoneout=zoneout, wgain=wgain))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
@@ -421,8 +428,13 @@ class AttentiveSeq2SeqModel(Chain):
 		assert len(encoder_last_hidden_states) == self.num_layers
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
+		ksize = self.decoder_kernel_size
 
-		xt = X[:, -1, None]
+		if seq_length < ksize:
+			self.reset_state()
+			return self.decode(X, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask, test=test, return_last=True)
+
+		xt = X[:, -ksize:]
 		enmbedding = self.decoder_embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 

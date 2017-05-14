@@ -142,8 +142,8 @@ class QRNNEncoder(QRNN):
 	pass
 
 class QRNNDecoder(QRNN):
-	def __init__(self, in_channels, out_channels, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1):
-		super(QRNNDecoder, self).__init__(in_channels, out_channels, 1, pooling, zoneout, zoneout_ratio, wgain=wgain)
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1):
+		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio, wgain=wgain)
 		self.num_split = len(pooling) + 1
 		wstd = math.sqrt(1. / out_channels / self.num_split)
 		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
@@ -151,7 +151,10 @@ class QRNNDecoder(QRNN):
 	# ht_enc is the last encoder state
 	def __call__(self, X, ht_enc, test=False):
 		self._test = test
+		pad = self._kernel_size - 1
 		WX = self.W(X)
+		if pad > 0:
+			WX = WX[:, :, :-pad]
 		Vh = self.V(ht_enc)
 
 		# copy Vh
@@ -192,8 +195,8 @@ class QRNNDecoder(QRNN):
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):
-	def __init__(self, in_channels, out_channels, zoneout=False, zoneout_ratio=0.1, wgain=1):
-		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, "fo", zoneout, zoneout_ratio, wgain=wgain)
+	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wgain=1):
+		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio, wgain=wgain)
 		wstd = math.sqrt(1. / out_channels / 2.)
 		self.add_link('o', links.Linear(2 * out_channels, out_channels, initialW=initializers.Normal(wstd)))
 
@@ -202,7 +205,10 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 	# H_enc is the encoder's las layer's hidden sates
 	def __call__(self, X, ht_enc, H_enc, skip_mask=None, test=False):
 		self._test = test
+		pad = self._kernel_size - 1
 		WX = self.W(X)
+		if pad > 0:
+			WX = WX[:, :, :-pad]
 		Vh = self.V(ht_enc)
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
 
@@ -254,7 +260,8 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 
 	def forward_one_step(self, X, ht_enc, H_enc, skip_mask, test=False):
 		self._test = test
-		WX = self.W(X)[:, :, -1, None]
+		pad = self._kernel_size - 1
+		WX = self.W(X)[:, :, -pad-1, None]
 		Vh = self.V(ht_enc)
 
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
