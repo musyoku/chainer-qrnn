@@ -17,35 +17,31 @@ from error import compute_accuracy, compute_random_accuracy, compute_perplexity,
 
 def main(args):
 	# load textfile
-	train_dataset, dev_dataset, test_dataset, vocab, vocab_inv = read_data(args.text_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
+	dataset_train, dataset_dev, vocab, vocab_inv = read_data(args.train_filename, args.dev_filename)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 	vocab_size = len(vocab)
 	print_bold("data	#	hash")
-	print("train	{}	{}".format(len(train_dataset), hash(str(train_dataset))))
-	print("dev	{}	{}".format(len(dev_dataset), hash(str(dev_dataset))))
-	print("test	{}	{}".format(len(test_dataset), hash(str(test_dataset))))
+	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))
+	print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
 	print("vocab	{}".format(vocab_size))
 
 	# split into buckets
-	train_buckets = make_buckets(train_dataset)
+	train_buckets = make_buckets(dataset_train)
 
 	print_bold("buckets	#data	(train)")
-	if args.buckets_limit is not None:
-		train_buckets = train_buckets[:args.buckets_limit+1]
+	if args.buckets_slice is not None:
+		train_buckets = train_buckets[:args.buckets_slice + 1]
 	for size, data in zip(bucket_sizes, train_buckets):
 		print("{}	{}".format(size, len(data)))
 
-	print_bold("buckets	#data	(dev)")
-	dev_buckets = make_buckets(dev_dataset)
-	if args.buckets_limit is not None:
-		dev_buckets = dev_buckets[:args.buckets_limit+1]
-	for size, data in zip(bucket_sizes, dev_buckets):
-		print("{}	{}".format(size, len(data)))
-
-	print_bold("buckets	#data	(test)")
-	test_buckets = make_buckets(test_dataset)
-	for size, data in zip(bucket_sizes, test_buckets):
-		print("{}	{}".format(size, len(data)))
+	dev_buckets = None
+	if len(dataset_dev) > 0:
+		print_bold("buckets	#data	(dev)")
+		dev_buckets = make_buckets(dataset_dev)
+		if args.buckets_slice is not None:
+			dev_buckets = dev_buckets[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, dev_buckets):
+			print("{}	{}".format(size, len(data)))
 
 	# to maintain equilibrium
 	min_num_data = 0
@@ -61,7 +57,7 @@ def main(args):
 	num_updates_per_iteration = 0
 	for repeat, data in zip(repeats, train_buckets):
 		num_updates_per_iteration += repeat * args.batchsize
-	num_iteration = len(train_dataset) // num_updates_per_iteration + 1
+	num_iteration = len(dataset_train) // num_updates_per_iteration + 1
 
 	# init
 	model = load_model(args.model_dir)
@@ -72,15 +68,12 @@ def main(args):
 		model.to_gpu()
 
 	# setup an optimizer
-	if args.eve:
-		optimizer = Eve(alpha=args.learning_rate, beta1=0.9)
-	else:
-		optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
+	optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-4
-	prev_ppl = None
+	final_learning_rate = 1e-5
+	decay_factor = 0.95
 	total_time = 0
 
 	def mean(l):
@@ -106,34 +99,37 @@ def main(args):
 					loss = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
-
-			if itr % args.interval == 0 or itr == num_iteration:
-				save_model(args.model_dir, model)
+		# serialize
+		save_model(args.model_dir, model)
 
 		# show log
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
+
 		print_bold("	accuracy (sampled train)")
 		acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
 		print("	", mean(acc_train), acc_train)
-		print_bold("	accuracy (dev)")
-		acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
-		print("	", mean(acc_dev), acc_dev)
+
+		if dev_buckets is not None:
+			print_bold("	accuracy (dev)")
+			acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
+			print("	", mean(acc_dev), acc_dev)
+
 		print_bold("	ppl (sampled train)")
 		ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
 		print("	", mean(ppl_train), ppl_train)
-		print_bold("	ppl (dev)")
-		ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
-		ppl_dev_mean = mean(ppl_dev)
-		print("	", ppl_dev_mean, ppl_dev)
+
+		if dev_buckets is not None:
+			print_bold("	ppl (dev)")
+			ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
+			print("	", mean(ppl_dev), ppl_dev)
+
 		elapsed_time = (time.time() - start_time) / 60.
 		total_time += elapsed_time
 		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
-		if prev_ppl is not None and ppl_dev_mean >= prev_ppl and optimizer.alpha > min_learning_rate:
-			optimizer.alpha *= 0.5
-		prev_ppl = ppl_dev_mean
+		optimizer.alpha *= decay_factor
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -146,19 +142,16 @@ if __name__ == "__main__":
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
-	parser.add_argument("--seed", type=int, default=0)
-	parser.add_argument("--train-split", type=float, default=0.9)
-	parser.add_argument("--dev-split", type=float, default=0.05)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=0.01)
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
-	parser.add_argument("--buckets-limit", type=int, default=None)
+	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
-	parser.add_argument("--text-filename", "-f", default=None)
+	parser.add_argument("--train-filename", "-train", default=None)
+	parser.add_argument("--dev-filename", "-dev", default=None)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
-	parser.add_argument("--eve", default=False, action="store_true")
 	args = parser.parse_args()
 	main(args)

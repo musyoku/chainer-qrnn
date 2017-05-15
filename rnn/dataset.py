@@ -3,16 +3,17 @@ import codecs, random
 import numpy as np
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes
 
-def read_data(filepath, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0):
-	assert(train_split_ratio + dev_split_ratio <= 1)
+def read_data(filename_train, filename_dev):
 	vocab = {
 		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
 		"<bos>": ID_BOS,
 		"<eos>": ID_EOS,
 	}
-	dataset = []
-	with codecs.open(filepath, "r", "utf-8") as f:
+	dataset_train = []
+	dataset_dev = []
+
+	with codecs.open(filename_train, "r", "utf-8") as f:
 		for sentence in f:
 			sentence = sentence.strip()
 			if len(sentence) == 0:
@@ -25,26 +26,29 @@ def read_data(filepath, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0):
 				word_id = vocab[word]
 				word_ids.append(word_id)
 			word_ids.append(ID_EOS)
-			dataset.append(word_ids)
+			dataset_train.append(word_ids)
+
+	if filename_dev is not None:
+		with codecs.open(filename_dev, "r", "utf-8") as f:
+			for sentence in f:
+				sentence = sentence.strip()
+				if len(sentence) == 0:
+					continue
+				word_ids = [ID_BOS]
+				words = sentence.split(" ")
+				for word in words:
+					if word not in vocab:
+						vocab[word] = len(vocab)
+					word_id = vocab[word]
+					word_ids.append(word_id)
+				word_ids.append(ID_EOS)
+				dataset_dev.append(word_ids)
 
 	vocab_inv = {}
 	for word, word_id in vocab.items():
 		vocab_inv[word_id] = word
 
-	random.seed(seed)
-	random.shuffle(dataset)
-
-	# [train][dev] | [test]
-	train_split = int(len(dataset) * (train_split_ratio + dev_split_ratio))
-	train_dev_dataset = dataset[:train_split]
-	test_dataset = dataset[train_split:]
-
-	# [train] | [dev]
-	dev_split = int(len(train_dev_dataset) * dev_split_ratio / (train_split_ratio + dev_split_ratio))
-	dev_dataset = train_dev_dataset[:dev_split]
-	train_dataset = train_dev_dataset[dev_split:]
-
-	return train_dataset, dev_dataset, test_dataset, vocab, vocab_inv
+	return dataset_train, dataset_dev, vocab, vocab_inv
 
 # input:
 # [0, a, b, c, 1]
