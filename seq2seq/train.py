@@ -144,20 +144,20 @@ def main(args):
 		show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
 		print_bold("translate (dev)")
 		show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
-		print_bold("WER (train)")
-		wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+		print_bold("WER (sampled train)")
+		wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=8)
 		print(mean(wer_train), wer_train)
-		print_bold("WER (dev)")
-		wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=8)
-		mean_wer_dev = mean(wer_dev)
-		print(mean_wer_dev, wer_dev)
+		# print_bold("WER (dev)")
+		# wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=1)
+		# mean_wer_dev = mean(wer_dev)
+		# print(mean_wer_dev, wer_dev)
 		elapsed_time = (time.time() - start_time) / 60.
 		total_time += elapsed_time
 		print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
 		if prev_wer is not None and mean_wer_dev >= prev_wer and optimizer.alpha > min_learning_rate:
-			optimizer.alpha *= 0.5
+			optimizer.alpha *= 0.1
 		prev_wer = mean_wer_dev
 
 if __name__ == "__main__":

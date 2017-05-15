@@ -105,7 +105,7 @@ class Seq2SeqModel(Chain):
 		self.ndim_h = ndim_h
 		self.encoder_kernel_size_first = 6
 		self.encoder_kernel_size_other = 2
-		self.decoder_kernel_size = 1
+		self.decoder_kernel_size = 1	# Linear
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.dropout = dropout

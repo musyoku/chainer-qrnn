@@ -9,7 +9,7 @@ from chainer.functions.activation import log_softmax
 from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
-from translate import translate_batch
+from translate import translate_batch, translate, _translate_batch
 
 class SoftmaxCrossEntropy(functions.loss.softmax_cross_entropy.SoftmaxCrossEntropy):
 
@@ -97,68 +97,48 @@ def compute_word_error_rate_of_sequence(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width=8):
+def compute_wer_with_source_target_sequence(model, source, target, target_vocab_size, beam_width=8, normalization_alpha=0):
 	xp = model.xp
-	num_calculation = 0
-	sum_wer = 0
-	batchsize = source_batch.shape[0]
-	x = translate_batch(model, source_batch, target_batch.shape[1] * 2, target_vocab_size, beam_width)
+	x = translate(model, source, target.size * 2, target_vocab_size, beam_width, normalization_alpha)
 
-	for n in xrange(batchsize):
-		target_tokens = []
-		for token in target_batch[n, :]:
-			token = int(token)	# to cpu
-			if token == ID_PAD:
-				break
-			if token == ID_EOS:
-				break
-			if token == ID_GO:
-				continue
-			target_tokens.append(token)
+	target_tokens = []
+	for token in target:
+		token = int(token)	# to cpu
+		if token == ID_PAD:
+			break
+		if token == ID_EOS:
+			break
+		if token == ID_GO:
+			continue
+		target_tokens.append(token)
 
-		predict_tokens = []
-		for token in x[n]:
-			token = int(token)	# to cpu
-			if token == ID_EOS:
-				break
-			if token == ID_PAD:
-				break
-			if token == ID_GO:
-				continue
-			predict_tokens.append(token)
+	predict_tokens = []
+	for token in x:
+		token = int(token)	# to cpu
+		if token == ID_EOS:
+			break
+		if token == ID_PAD:
+			break
+		if token == ID_GO:
+			continue
+		predict_tokens.append(token)
 
-		wer = compute_word_error_rate_of_sequence(target_tokens, predict_tokens)
-		sum_wer += wer
-		num_calculation += 1
+	return compute_word_error_rate_of_sequence(target_tokens, predict_tokens)
 
-	return sum_wer / num_calculation
-
-def compute_mean_wer(model, source_buckets, target_buckets, target_vocab_size, batchsize=100, beam_width=8):
+def compute_mean_wer_with_source_target_buckets(model, source_buckets, target_buckets, target_vocab_size, beam_width=8, normalization_alpha=0):
 	result = []
 	for bucket_index, (source_bucket, target_bucket) in enumerate(zip(source_buckets, target_buckets)):
-		num_calculation = 0
 		sum_wer = 0
 
-		if len(source_bucket) > batchsize:
-			num_sections = len(source_bucket) // batchsize - 1
-			if len(source_bucket) % batchsize > 0:
-				num_sections += 1
-			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
-			source_sections = np.split(source_bucket, indices, axis=0)
-			target_sections = np.split(target_bucket, indices, axis=0)
-		else:
-			source_sections = [source_bucket]
-			target_sections = [target_bucket]
-
-
-		for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
-			sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
+		for index in xrange(len(source_bucket)):
+			sys.stdout.write("\rcomputing WER ... bucket {}/{} (sequence {}/{})".format(bucket_index + 1, len(source_buckets), index + 1, len(source_bucket)))
 			sys.stdout.flush()
-			mean_wer = compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
-			sum_wer += mean_wer
-			num_calculation += 1
+			source = source_bucket[None, index]	# keep dims
+			target = target_bucket[index]
+			wer = compute_wer_with_source_target_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
+			sum_wer += wer
 
-		result.append(sum_wer / num_calculation * 100)
+		result.append(sum_wer / len(source_bucket) * 100)
 		
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
@@ -226,14 +206,17 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
+	beam_width = 8
+	normalization_alpha = 0.
+
 	print_bold("WER (train)")
-	wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+	wer_train = compute_mean_wer_with_source_target_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_train)
 	print_bold("WER (dev)")
-	wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+	wer_dev = compute_mean_wer_with_source_target_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_dev)
 	print_bold("WER (test)")
-	wer_test = compute_mean_wer(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), batchsize=args.batchsize, beam_width=8)
+	wer_test = compute_mean_wer_with_source_target_buckets(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_test)
 
 if __name__ == "__main__":
