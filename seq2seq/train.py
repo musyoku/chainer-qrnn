@@ -145,11 +145,11 @@ def main(args):
 			dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
 			print_bold("WER (sampled train)")
-			wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=2)
+			wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
 			print(mean(wer_train), wer_train)
 
 			print_bold("WER (dev)")
-			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=2)
+			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
 			print(mean(wer_dev), wer_dev)
 
 		elapsed_time = (time.time() - start_time) / 60.
