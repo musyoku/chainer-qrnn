@@ -9,7 +9,7 @@ from chainer.functions.activation import log_softmax
 from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
-from translate import translate_batch, translate, _translate_batch
+from translate import translate_beam_search, translate_greedy
 
 def _broadcast_to(array, shape):
 	if hasattr(numpy, "broadcast_to"):
@@ -221,7 +221,7 @@ def softmax_cross_entropy(x, t, use_cudnn=True, normalize=True, cache_score=True
 	return SoftmaxCrossEntropy(use_cudnn, normalize, cache_score, class_weight, ignore_label, reduce)(x, t)
 
 # https://github.com/zszyellow/WER-in-python
-def compute_word_error_rate_of_sequence(r, h):
+def _wer(r, h):
 	# build the matrix
 	d = np.zeros((len(r) + 1) * (len(h) + 1), dtype=np.uint8).reshape((len(r) + 1, len(h) + 1))
 	for i in xrange(len(r) + 1):
@@ -239,9 +239,45 @@ def compute_word_error_rate_of_sequence(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def compute_wer_with_source_target_sequence(model, source, target, target_vocab_size, beam_width=8, normalization_alpha=0):
+def compute_error_rate_batch(model, source_batch, target_batch, target_vocab_size, beam_width=8):
 	xp = model.xp
-	x = translate(model, source, target.size * 2, target_vocab_size, beam_width, normalization_alpha)
+	num_calculation = 0
+	sum_wer = 0
+	batchsize = source_batch.shape[0]
+	x = translate_greedy(model, source_batch, target_batch.shape[1] * 2, target_vocab_size, beam_width)
+
+	for n in xrange(batchsize):
+		target_tokens = []
+		for token in target_batch[n, :]:
+			token = int(token)	# to cpu
+			if token == ID_PAD:
+				break
+			if token == ID_EOS:
+				break
+			if token == ID_GO:
+				continue
+			target_tokens.append(token)
+
+		predict_tokens = []
+		for token in x[n]:
+			token = int(token)	# to cpu
+			if token == ID_EOS:
+				break
+			if token == ID_PAD:
+				break
+			if token == ID_GO:
+				continue
+			predict_tokens.append(token)
+
+		wer = _wer(target_tokens, predict_tokens)
+		sum_wer += wer
+		num_calculation += 1
+
+	return sum_wer / num_calculation
+
+def compute_error_rate_sequence(model, source, target, target_vocab_size, beam_width=8, normalization_alpha=0):
+	xp = model.xp
+	x = translate_beam_search(model, source, target.size * 2, target_vocab_size, beam_width, normalization_alpha)
 
 	target_tokens = []
 	for token in target:
@@ -265,37 +301,71 @@ def compute_wer_with_source_target_sequence(model, source, target, target_vocab_
 			continue
 		predict_tokens.append(token)
 
-	return compute_word_error_rate_of_sequence(target_tokens, predict_tokens)
+	return _wer(target_tokens, predict_tokens)
 
-def compute_mean_wer_with_source_target_buckets(model, source_buckets, target_buckets, target_vocab_size, beam_width=8, normalization_alpha=0):
+def compute_error_rate_buckets(model, source_buckets, target_buckets, target_vocab_size, beam_width=8, normalization_alpha=0):
 	result = []
 	for bucket_index, (source_bucket, target_bucket) in enumerate(zip(source_buckets, target_buckets)):
 		sum_wer = 0
 
-		for index in xrange(len(source_bucket)):
-			sys.stdout.write("\rcomputing WER ... bucket {}/{} (sequence {}/{})".format(bucket_index + 1, len(source_buckets), index + 1, len(source_bucket)))
-			sys.stdout.flush()
-			source = source_bucket[None, index]	# keep dims
-			target = target_bucket[index]
-			wer = compute_wer_with_source_target_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
-			sum_wer += wer
+		if beam_width == 1:	# greedy
+			batchsize = 24
 
-		result.append(sum_wer / len(source_bucket) * 100)
+			if len(source_bucket) > batchsize:
+				num_sections = len(source_bucket) // batchsize - 1
+				if len(source_bucket) % batchsize > 0:
+					num_sections += 1
+				indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+				source_sections = np.split(source_bucket, indices, axis=0)
+				target_sections = np.split(target_bucket, indices, axis=0)
+			else:
+				source_sections = [source_bucket]
+				target_sections = [target_bucket]
+
+			for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
+				sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
+				sys.stdout.flush()
+				mean_wer = compute_error_rate_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
+				sum_wer += mean_wer
+			result.append(sum_wer / len(source_sections) * 100)
+
+		else:	# beam search
+			for index in xrange(len(source_bucket)):
+				sys.stdout.write("\rcomputing WER ... bucket {}/{} (sequence {}/{})".format(bucket_index + 1, len(source_buckets), index + 1, len(source_bucket)))
+				sys.stdout.flush()
+				source = source_bucket[index]
+				target = target_bucket[index]
+				wer = compute_error_rate_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
+				sum_wer += wer
+			result.append(sum_wer / len(source_bucket) * 100)
 		
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 
 	return result
 
-def compute_random_mean_wer(model, source_buckets, target_buckets, target_vocab_size, sample_size=100, beam_width=8):
+def compute_random_error_rate_buckets(model, source_buckets, target_buckets, target_vocab_size, sample_size=100, beam_width=8, normalization_alpha=0):
 	xp = model.xp
 	result = []
-	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
-		# sample minibatch
+	for bucket_index, (source_bucket, target_bucket) in enumerate(zip(source_buckets, target_buckets)):
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, sample_size)
 		
-		# compute WER
-		mean_wer = compute_batch_wer_mean(model, source_batch, target_batch, target_vocab_size, beam_width)
+		if beam_width == 1:	# greedy
+			mean_wer = compute_error_rate_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
+
+		else:	# beam search
+			sum_wer = 0
+			for index in xrange(sample_size):
+				sys.stdout.write("\rcomputing WER ... bucket {}/{} (sequence {}/{})".format(bucket_index + 1, len(source_buckets), index + 1, sample_size))
+				sys.stdout.flush()
+				source = source_batch[index]
+				target = target_batch[index]
+				wer = compute_error_rate_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
+				sum_wer += wer
+			mean_wer = sum_wer / len(source_batch)
+
+			sys.stdout.write("\r" + stdout.CLEAR)
+			sys.stdout.flush()
 
 		result.append(mean_wer * 100)
 
@@ -352,13 +422,13 @@ def main(args):
 	normalization_alpha = 0.
 
 	print_bold("WER (train)")
-	wer_train = compute_mean_wer_with_source_target_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width, normalization_alpha)
+	wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_train)
 	print_bold("WER (dev)")
-	wer_dev = compute_mean_wer_with_source_target_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width, normalization_alpha)
+	wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_dev)
 	print_bold("WER (test)")
-	wer_test = compute_mean_wer_with_source_target_buckets(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), beam_width, normalization_alpha)
+	wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_test)
 
 if __name__ == "__main__":

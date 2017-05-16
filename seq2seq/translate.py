@@ -61,71 +61,71 @@ def make_buckets(dataset):
 	return buckets
 
 # https://harvardnlp.github.io/seq2seq-talk/slidescmu.pdf
-def _beam_search(model, x, t, beam_width, log_p_t_beam, sum_log_p_beam, vocab_size, backward_table, token_table, endpoint_list, perplexity_list, top_k):
-	if top_k <= 0:
-		return 0
-	assert beam_width == len(sum_log_p_beam)
-	xp = model.xp
+# def _beam_search(model, x, t, beam_width, log_p_t_beam, sum_log_p_beam, vocab_size, backward_table, token_table, endpoint_list, perplexity_list, top_k):
+# 	if top_k <= 0:
+# 		return 0
+# 	assert beam_width == len(sum_log_p_beam)
+# 	xp = model.xp
 
-	def argmax_k(array, k):
-		if xp is np:
-			return array.argsort()[-k:][::-1]
-		else:
-			result = []
-			min_value = xp.amin(array)
-			for n in xrange(k):
-				result.append(xp.argmax(array))
-				array[result[-1]] = min_value
-			return result
+# 	def argmax_k(array, k):
+# 		if xp is np:
+# 			return array.argsort()[-k:][::-1]
+# 		else:
+# 			result = []
+# 			min_value = xp.amin(array)
+# 			for n in xrange(k):
+# 				result.append(xp.argmax(array))
+# 				array[result[-1]] = min_value
+# 			return result
 
-	if t == 0:
-		score = log_p_t_beam[0]
-		indices_beam = argmax_k(score, beam_width)
-	else:
-		score = log_p_t_beam + xp.repeat(sum_log_p_beam, vocab_size, axis=1)
-		score = score.reshape((-1,))
-		indices_beam = argmax_k(score, beam_width)
+# 	if t == 0:
+# 		score = log_p_t_beam[0]
+# 		indices_beam = argmax_k(score, beam_width)
+# 	else:
+# 		score = log_p_t_beam + xp.repeat(sum_log_p_beam, vocab_size, axis=1)
+# 		score = score.reshape((-1,))
+# 		indices_beam = argmax_k(score, beam_width)
 
-	if t == 0:
-		for beam, index in enumerate(indices_beam):
-			token = index % vocab_size
-			backward = index // vocab_size
-			backward_table[beam, t] = backward
-			token_table[beam, t] = token
-			sum_log_p_beam[beam] += log_p_t_beam[backward, token]
-			if token == ID_EOS:
-				endpoint_list.append((t, beam))
-				perplexity_list.append(float(sum_log_p_beam[beam]) / t)
-				top_k -= 1
-		return top_k
+# 	if t == 0:
+# 		for beam, index in enumerate(indices_beam):
+# 			token = index % vocab_size
+# 			backward = index // vocab_size
+# 			backward_table[beam, t] = backward
+# 			token_table[beam, t] = token
+# 			sum_log_p_beam[beam] += log_p_t_beam[backward, token]
+# 			if token == ID_EOS:
+# 				endpoint_list.append((t, beam))
+# 				perplexity_list.append(float(sum_log_p_beam[beam]) / t)
+# 				top_k -= 1
+# 		return top_k
 
-	k = 0
-	for beam in xrange(beam_width):
-		backward_table[beam, t] = -1
+# 	k = 0
+# 	for beam in xrange(beam_width):
+# 		backward_table[beam, t] = -1
 
-	for beam, index in enumerate(indices_beam):
-		token = index % vocab_size
-		backward = index // vocab_size
-		prev_token = x[backward, t]
-		if prev_token == ID_EOS or prev_token == ID_PAD:
-			continue
-		sum_log_p_beam[beam] += log_p_t_beam[backward, token]
-		print(beam, token, backward)
-		backward_table[beam, t] = backward
-		token_table[beam, t] = token
-		if token == ID_EOS:
-			endpoint_list.append((t, beam))
-			perplexity_list.append(float(sum_log_p_beam[beam]) / t)
-			top_k -= 1
+# 	for beam, index in enumerate(indices_beam):
+# 		token = index % vocab_size
+# 		backward = index // vocab_size
+# 		prev_token = x[backward, t]
+# 		if prev_token == ID_EOS or prev_token == ID_PAD:
+# 			continue
+# 		sum_log_p_beam[beam] += log_p_t_beam[backward, token]
+# 		print(beam, token, backward)
+# 		backward_table[beam, t] = backward
+# 		token_table[beam, t] = token
+# 		if token == ID_EOS:
+# 			endpoint_list.append((t, beam))
+# 			perplexity_list.append(float(sum_log_p_beam[beam]) / t)
+# 			top_k -= 1
 
-	for beam in xrange(beam_width):
-		backward = backward_table[beam, t]
-		if backward == -1:
-			print(beam)
-	return top_k
+# 	for beam in xrange(beam_width):
+# 		backward = backward_table[beam, t]
+# 		if backward == -1:
+# 			print(beam)
+# 	return top_k
 
 
-def _translate_batch(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
+def translate_greedy(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
 	xp = model.xp
 	skip_mask = source_batch != ID_PAD
 	batchsize = source_batch.shape[0]
@@ -172,7 +172,7 @@ def _translate_batch(model, source_batch, max_predict_length, vocab_size, beam_w
 	return x
 
 # http://opennmt.net/OpenNMT/translation/beam_search/
-def translate(model, source, max_predict_length, vocab_size, beam_width=8, normalization_alpha=0, source_reversed=True):
+def translate_beam_search(model, source, max_predict_length, vocab_size, beam_width=8, normalization_alpha=0, source_reversed=True):
 	xp = model.xp
 	if source.ndim == 1:
 		source = xp.reshape(source, (1, -1))
@@ -269,32 +269,40 @@ def translate(model, source, max_predict_length, vocab_size, beam_width=8, norma
 		sum_log_p = new_sum_log_p
 
 		# remove stopped beam
-		flag = np.ones((current_beam_width,), dtype=bool)
-		flag[stopped_beams] = False
-		new_x = x[flag]
-		sum_log_p = sum_log_p[flag]
-		stopped_x = x[xp.invert(flag)]
-		for n in xrange(len(stopped_x)):
-			candidates.append(stopped_x[n])
-		x = new_x
+		if len(stopped_beams) > 0:
+			flag = xp.ones((current_beam_width,), dtype=bool)
+			flag[stopped_beams] = False
+			new_x = x[flag]
+			sum_log_p = sum_log_p[flag]
+			stopped_x = x[xp.invert(flag)]
+			for n in xrange(len(stopped_x)):
+				candidates.append(stopped_x[n])
+			x = new_x
 
-		# slice
-		num_to_remove = len(stopped_beams)
-		for i, state in enumerate(encoder_last_hidden_states):
-			encoder_last_hidden_states[i] = encoder_last_hidden_states[i][num_to_remove:]
-		if encoder_last_layer_outputs is not None:
-			encoder_last_layer_outputs = encoder_last_layer_outputs[num_to_remove:]
-		skip_mask = skip_mask[num_to_remove:]
-		current_beam_width -= len(stopped_beams)
+			# slice
+			num_to_remove = len(stopped_beams)
+			for i, state in enumerate(encoder_last_hidden_states):
+				encoder_last_hidden_states[i] = encoder_last_hidden_states[i][num_to_remove:]
+			if encoder_last_layer_outputs is not None:
+				encoder_last_layer_outputs = encoder_last_layer_outputs[num_to_remove:]
+			skip_mask = skip_mask[num_to_remove:]
+			current_beam_width -= len(stopped_beams)
 
 		if current_beam_width <= 0:
 			break
 
 	assert len(candidates) == len(log_likelihood)
-	beam_width = len(candidates)
+	num_sampled = len(candidates)
+
+	# if empty
+	if num_sampled == 0:
+		result = []
+		for token in (x[0]):
+			result.append(token)
+		return result
 
 	# compute score
-	scores = np.empty((beam_width,), dtype=float)
+	scores = np.empty((num_sampled,), dtype=float)
 	for i, (sequence, log_p) in enumerate(zip(candidates, log_likelihood)):
 		length = sequence.size
 		penalty = math.pow(5 + length, normalization_alpha) / math.pow(5 + 1, normalization_alpha)
@@ -306,105 +314,98 @@ def translate(model, source, max_predict_length, vocab_size, beam_width=8, norma
 		result.append(token)
 	return result
 
-def translate_batch(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
-	xp = model.xp
-	skip_mask = source_batch != ID_PAD
-	batchsize = source_batch.shape[0]
+# def translate_greedy(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
+# 	xp = model.xp
+# 	skip_mask = source_batch != ID_PAD
+# 	batchsize = source_batch.shape[0]
 
-	# to gpu
-	if xp is cuda.cupy:
-		source_batch = cuda.to_gpu(source_batch)
-		skip_mask = cuda.to_gpu(skip_mask)
+# 	# to gpu
+# 	if xp is cuda.cupy:
+# 		source_batch = cuda.to_gpu(source_batch)
+# 		skip_mask = cuda.to_gpu(skip_mask)
 
-	word_ids = xp.arange(0, vocab_size, dtype=xp.int32)
+# 	word_ids = xp.arange(0, vocab_size, dtype=xp.int32)
 
-	model.reset_state()
-	x = xp.full((batchsize * beam_width, 1), ID_GO, dtype=xp.int32)
+# 	model.reset_state()
+# 	x = xp.full((batchsize * beam_width, 1), ID_GO, dtype=xp.int32)
 
-	# get encoder's last hidden states
-	if isinstance(model, AttentiveSeq2SeqModel):
-		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
-	else:
-		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True), None
+# 	# get encoder's last hidden states
+# 	if isinstance(model, AttentiveSeq2SeqModel):
+# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
+# 	else:
+# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True), None
 
-	# copy beam_width times
-	for i, state in enumerate(encoder_last_hidden_states):
-		encoder_last_hidden_states[i] = xp.repeat(state.data, beam_width, axis=0)
-	if encoder_last_layer_outputs is not None:
-		encoder_last_layer_outputs = xp.repeat(encoder_last_layer_outputs.data, beam_width, axis=0)
-	skip_mask = xp.repeat(skip_mask, beam_width, axis=0)
+# 	# copy beam_width times
+# 	for i, state in enumerate(encoder_last_hidden_states):
+# 		encoder_last_hidden_states[i] = xp.repeat(state.data, beam_width, axis=0)
+# 	if encoder_last_layer_outputs is not None:
+# 		encoder_last_layer_outputs = xp.repeat(encoder_last_layer_outputs.data, beam_width, axis=0)
+# 	skip_mask = xp.repeat(skip_mask, beam_width, axis=0)
 
-	backward_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
-	token_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
-	sum_log_p_batch = xp.zeros((batchsize * beam_width, 1), dtype=xp.float32)
-	perplexity_list_batch = [[] * batchsize]
-	endpoint_list_batch = [[] * batchsize]
-	top_k = [beam_width] * batchsize
+# 	backward_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
+# 	token_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
+# 	sum_log_p_batch = xp.zeros((batchsize * beam_width, 1), dtype=xp.float32)
+# 	perplexity_list_batch = [[] * batchsize]
+# 	endpoint_list_batch = [[] * batchsize]
+# 	top_k = [beam_width] * batchsize
 
-	for t in xrange(max_predict_length):
-		model.reset_decoder_state()
-		if isinstance(model, AttentiveSeq2SeqModel):
-			u_t = model.decode(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True, return_last=True)
-		else:
-			u_t = model.decode(x, encoder_last_hidden_states, test=True, return_last=True)
-		p_t = F.softmax(u_t)	# convert to probability
-		log_p_t = F.log(p_t)
+# 	for t in xrange(max_predict_length):
+# 		model.reset_decoder_state()
+# 		if isinstance(model, AttentiveSeq2SeqModel):
+# 			u_t = model.decode(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True, return_last=True)
+# 		else:
+# 			u_t = model.decode(x, encoder_last_hidden_states, test=True, return_last=True)
+# 		p_t = F.softmax(u_t)	# convert to probability
+# 		log_p_t = F.log(p_t)
 
-		# concatenate
-		if xp is np:
-			x = xp.append(x, xp.full((batchsize * beam_width, 1), ID_PAD, dtype=xp.int32), axis=1)
-		else:
-			x = xp.concatenate((x, xp.full((batchsize * beam_width, 1), ID_PAD, dtype=xp.int32)), axis=1)
+# 		# concatenate
+# 		if xp is np:
+# 			x = xp.append(x, xp.full((batchsize * beam_width, 1), ID_PAD, dtype=xp.int32), axis=1)
+# 		else:
+# 			x = xp.concatenate((x, xp.full((batchsize * beam_width, 1), ID_PAD, dtype=xp.int32)), axis=1)
 
-		# beam search
-		for b in xrange(batchsize):
-			start = b * beam_width
-			end = (b + 1) * beam_width
-			log_p = log_p_t.data[start:end]
-			sum_log_p = sum_log_p_batch[start:end]
-			backward_table = backward_table_batch[start:end]
-			token_table = token_table_batch[start:end]
-			top_k[b] = _beam_search(model, x[start:end], t, beam_width, log_p, sum_log_p, vocab_size, backward_table, token_table, endpoint_list_batch[b], perplexity_list_batch[b], top_k[b])
-			# reconstruct input sequence
-			for beam in xrange(beam_width):
-				k = beam
-				for i in xrange(t + 1):
-					token = int(token_table[k, t-max_predict_length-i])
-					k = backward_table[k, t-max_predict_length-i]
-					x[start + beam, -i-1] = token
-			print(endpoint_list_batch[b])
-			print(perplexity_list_batch[b])
-			print(backward_table)
-			print(token_table)
-			print(x[start:end])
-			print(top_k[b])
-			print()
+# 		# beam search
+# 		for b in xrange(batchsize):
+# 			start = b * beam_width
+# 			end = (b + 1) * beam_width
+# 			log_p = log_p_t.data[start:end]
+# 			sum_log_p = sum_log_p_batch[start:end]
+# 			backward_table = backward_table_batch[start:end]
+# 			token_table = token_table_batch[start:end]
+# 			top_k[b] = _beam_search(model, x[start:end], t, beam_width, log_p, sum_log_p, vocab_size, backward_table, token_table, endpoint_list_batch[b], perplexity_list_batch[b], top_k[b])
+# 			# reconstruct input sequence
+# 			for beam in xrange(beam_width):
+# 				k = beam
+# 				for i in xrange(t + 1):
+# 					token = int(token_table[k, t-max_predict_length-i])
+# 					k = backward_table[k, t-max_predict_length-i]
+# 					x[start + beam, -i-1] = token
 
-	# backward
-	result = np.zeros((batchsize, max_predict_length), dtype=np.int32)
-	for b in xrange(batchsize):
-		start = b * beam_width
-		end = (b + 1) * beam_width
-		log_p = log_p_batch.data[start:end]
-		perplexity = perplexity_batch[start:end]
-		sum_log_p = sum_log_p_batch[start:end]
-		print(sum_log_p)
-		print(perplexity)
-		backward_table = backward_table_batch[start:end]
-		token_table = token_table_batch[start:end]
-		k = xp.argmax(sum_log_p)	# take maximum
-		tokens = []
-		for t in xrange(1, max_predict_length + 1):
-			token = int(token_table[k, -t])
-			tokens.append(token)
-			k = backward_table[k, -t]
-		tokens.reverse()
-		result[b] = tokens
-		print(tokens)
+# 	# backward
+# 	result = np.zeros((batchsize, max_predict_length), dtype=np.int32)
+# 	for b in xrange(batchsize):
+# 		start = b * beam_width
+# 		end = (b + 1) * beam_width
+# 		log_p = log_p_batch.data[start:end]
+# 		perplexity = perplexity_batch[start:end]
+# 		sum_log_p = sum_log_p_batch[start:end]
+# 		print(sum_log_p)
+# 		print(perplexity)
+# 		backward_table = backward_table_batch[start:end]
+# 		token_table = token_table_batch[start:end]
+# 		k = xp.argmax(sum_log_p)	# take maximum
+# 		tokens = []
+# 		for t in xrange(1, max_predict_length + 1):
+# 			token = int(token_table[k, -t])
+# 			tokens.append(token)
+# 			k = backward_table[k, -t]
+# 		tokens.reverse()
+# 		result[b] = tokens
+# 		print(tokens)
 
-	return result
+# 	return result
 
-def show_translate_results(vocab_inv_source, vocab_inv_target, source, translation, target=None, source_reversed=True):
+def dump_translation(vocab_inv_source, vocab_inv_target, source, translation, target=None, source_reversed=True):
 	sentence = []
 	for token in source:
 		token = int(token)	# to cpu
@@ -443,40 +444,73 @@ def show_translate_results(vocab_inv_source, vocab_inv_target, source, translati
 		sentence.append(word)
 	print(" predict:", " ".join(sentence))
 
-def show_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, batchsize=10, beam_width=8):
-	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
-		num_calculation = 0
-		sum_wer = 0
+# def dump_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, batchsize=10):
+# 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
+# 		num_calculation = 0
+# 		sum_wer = 0
 
-		if len(source_bucket) > batchsize:
-			num_sections = len(source_bucket) // batchsize - 1
-			if len(source_bucket) % batchsize > 0:
-				num_sections += 1
-			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
-			source_sections = np.split(source_bucket, indices, axis=0)
-			target_sections = np.split(target_bucket, indices, axis=0)
-		else:
-			source_sections = [source_bucket]
-			target_sections = [target_bucket]
+# 		if len(source_bucket) > batchsize:
+# 			num_sections = len(source_bucket) // batchsize - 1
+# 			if len(source_bucket) % batchsize > 0:
+# 				num_sections += 1
+# 			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+# 			source_sections = np.split(source_bucket, indices, axis=0)
+# 			target_sections = np.split(target_bucket, indices, axis=0)
+# 		else:
+# 			source_sections = [source_bucket]
+# 			target_sections = [target_bucket]
 
-		for source_batch, target_batch in zip(source_sections, target_sections):
-			translation_batch = translate_batch(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
-			show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
+# 		for source_batch, target_batch in zip(source_sections, target_sections):
+# 			translation_batch = translate_beam_search(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
+# 			dump_translation(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
 
-def show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, batchsize=10, beam_width=8, normalization_alpha=0):
+def dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, normalization_alpha=0):
 	for source_bucket in source_buckets:
-		for index in xrange(len(source_bucket)):
-			source = source_bucket[index]
-			translation = translate(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha)
-			show_translate_results(vocab_inv_source, vocab_inv_target, source, translation)
+		if beam_width == 1:	# greedy
+			batchsize = 24
+			if len(source_bucket) > batchsize:
+				num_sections = len(source_bucket) // batchsize - 1
+				if len(source_bucket) % batchsize > 0:
+					num_sections += 1
+				indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+				source_sections = np.split(source_bucket, indices, axis=0)
+				target_sections = np.split(target_bucket, indices, axis=0)
+			else:
+				source_sections = [source_bucket]
+				target_sections = [target_bucket]
 
-def show_random_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=3, beam_width=8):
+			for source_batch, target_batch in zip(source_sections, target_sections):
+				translation_batch = translate_greedy(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
+				for index in xrange(len(translation_batch)):
+					source = source_batch[index]
+					translation = translation_batch[index]
+					target = target_batch[index]
+					dump_translation(vocab_inv_source, vocab_inv_target, source, translation, target)
+		else:	# beam search
+			for index in xrange(len(source_bucket)):
+				source = source_bucket[index]
+				translation = translate_beam_search(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha)
+				dump_translation(vocab_inv_source, vocab_inv_target, source, translation)
+
+def dump_random_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=3, beam_width=8):
 	xp = model.xp
 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
-		# sample minibatch
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, num_translate)
-		translation_batch = translate_batch(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
-		show_translate_results(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
+		
+		if beam_width == 1:	# greedy
+			translation_batch = translate_greedy(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
+			for index in xrange(len(translation_batch)):
+				source = source_batch[index]
+				translation = translation_batch[index]
+				target = target_batch[index]
+				dump_translation(vocab_inv_source, vocab_inv_target, source, translation, target)
+
+		else:	# beam search
+			for index in xrange(len(source_batch)):
+				source = source_batch[index]
+				target = target_batch[index]
+				translation_batch = translate_beam_search(model, source, target.size * 2, len(vocab_inv_target), beam_width)
+				dump_translation(vocab_inv_source, vocab_inv_target, source, translation_batch, target)
 
 def main(args):
 	# load vocab
@@ -506,7 +540,7 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
-	show_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, normalization_alpha=0)
+	dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, normalization_alpha=0)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

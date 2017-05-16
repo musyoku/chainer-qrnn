@@ -13,8 +13,8 @@ from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bo
 from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
 from eve import Eve
 from model import seq2seq, load_model, save_model, save_vocab
-from error import compute_mean_wer_with_source_target_buckets, softmax_cross_entropy
-from translate import show_random_source_target_translation
+from error import compute_error_rate_buckets, compute_random_error_rate_buckets, softmax_cross_entropy
+from translate import dump_random_source_target_translation
 
 # reference
 # https://www.tensorflow.org/tutorials/seq2seq
@@ -139,17 +139,17 @@ def main(args):
 
 		with chainer.using_config("train", False):
 			print_bold("translate (train)")
-			show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
+			dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
 			print_bold("translate (dev)")
-			show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
+			dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
 			print_bold("WER (sampled train)")
-			wer_train = compute_mean_wer_with_source_target_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=8)
+			wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=2)
 			print(mean(wer_train), wer_train)
 
 			print_bold("WER (dev)")
-			wer_dev = compute_mean_wer_with_source_target_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=1)
+			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=2)
 			print(mean(wer_dev), wer_dev)
 
 		elapsed_time = (time.time() - start_time) / 60.
