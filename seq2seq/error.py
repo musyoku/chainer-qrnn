@@ -18,7 +18,7 @@ def _broadcast_to(array, shape):
 	return numpy.broadcast_arrays(array, dummy)[0]
 
 
-class SoftmaxCrossEntropy(function.Function):
+class SoftmaxCrossEntropy(chainer.function.Function):
 
 	normalize = True
 
