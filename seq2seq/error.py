@@ -221,7 +221,7 @@ def softmax_cross_entropy(x, t, use_cudnn=True, normalize=True, cache_score=True
 	return SoftmaxCrossEntropy(use_cudnn, normalize, cache_score, class_weight, ignore_label, reduce)(x, t)
 
 # https://github.com/zszyellow/WER-in-python
-def _wer(r, h):
+def wer(r, h):
 	# build the matrix
 	d = np.zeros((len(r) + 1) * (len(h) + 1), dtype=np.uint8).reshape((len(r) + 1, len(h) + 1))
 	for i in xrange(len(r) + 1):
@@ -269,7 +269,7 @@ def compute_error_rate_batch(model, source_batch, target_batch, target_vocab_siz
 				continue
 			predict_tokens.append(token)
 
-		wer = _wer(target_tokens, predict_tokens)
+		wer = wer(target_tokens, predict_tokens)
 		sum_wer += wer
 		num_calculation += 1
 
@@ -301,7 +301,7 @@ def compute_error_rate_sequence(model, source, target, target_vocab_size, beam_w
 			continue
 		predict_tokens.append(token)
 
-	return _wer(target_tokens, predict_tokens)
+	return wer(target_tokens, predict_tokens)
 
 def compute_error_rate_buckets(model, source_buckets, target_buckets, target_vocab_size, beam_width=8, normalization_alpha=0):
 	result = []
