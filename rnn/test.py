@@ -19,18 +19,19 @@ def test_rnn():
 	source, target = make_source_target_pair(data)
 	model = RNNModel(vocab_size, ndim_embedding=100, num_layers=num_layers, ndim_h=3, kernel_size=3, pooling="fo", zoneout=False, wgain=1)
 
-	np.random.seed(0)
-	model.reset_state()
-	Y = model(source, test=True).data
+	with chainer.using_config("train", False):
+		np.random.seed(0)
+		model.reset_state()
+		Y = model(source, test=True).data
 
-	model.reset_state()
-	np.random.seed(0)
-	for t in xrange(source.shape[1]):
-		y = model.forward_one_step(source[:, :t+1], test=True).data
-		target = np.swapaxes(np.reshape(Y, (batchsize, -1, vocab_size)), 1, 2)
-		target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))
-		assert np.sum((y - target) ** 2) == 0
-		print("t = {} OK".format(t))
+		model.reset_state()
+		np.random.seed(0)
+		for t in xrange(source.shape[1]):
+			y = model.forward_one_step(source[:, :t+1], test=True).data
+			target = np.swapaxes(np.reshape(Y, (batchsize, -1, vocab_size)), 1, 2)
+			target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))
+			assert np.sum((y - target) ** 2) == 0
+			print("t = {} OK".format(t))
 
 if __name__ == "__main__":
 	test_rnn()

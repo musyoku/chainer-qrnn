@@ -273,34 +273,6 @@ def compute_perplexity_batch(model, batch):
 	neglogp = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 	return  math.exp(float(neglogp.data))
 
-	# Y = F.softmax(Y)
-	# Y.unchain_backward()
-	# P = Y.data[xp.arange(0, len(target)), target] + 1e-32
-	# log_P = xp.log(P)
-	# mask = target != ID_PAD
-	# log_P *= mask
-	# num_tokens = xp.count_nonzero(mask)
-	# mean_log_P = xp.sum(log_P) / num_tokens
-	# ppl =  math.exp(-float(mean_log_P))
-	# print(ppl, ppl1)
-	# return ppl
-
-	# batchsize = batch.shape[0]
-	# seq_batch = xp.split(Y, batchsize)
-	# target_batch = xp.split(target, batchsize)
-	# for seq, target in zip(seq_batch, target_batch):
-	# 	assert len(seq) == len(target)
-	# 	log_likelihood = 0
-	# 	num_tokens = 0
-	# 	for t in xrange(len(seq)):
-	# 		if target[t] == ID_PAD:
-	# 			break
-	# 		log_likelihood += math.log(seq[t, target[t]] + 1e-32)
-	# 		num_tokens += 1
-	# 	assert num_tokens > 0
-	# 	sum_log_likelihood += log_likelihood / num_tokens
-	# return math.exp(-sum_log_likelihood / batchsize)
-
 def compute_perplexity(model, buckets, batchsize=100):
 	result = []
 	for bucket_index, dataset in enumerate(buckets):
@@ -386,20 +358,21 @@ def main(args):
 	sys.stdout.write("\r" + stdout.CLEAR)
 	sys.stdout.flush()
 
-	if buckets_train is not None:
-		print_bold("ppl (train)")
-		ppl_train = compute_perplexity(model, buckets_train, args.batchsize)
-		print(mean(ppl_train), ppl_train)
+	with chainer.using_config("train", False):
+		if buckets_train is not None:
+			print_bold("ppl (train)")
+			ppl_train = compute_perplexity(model, buckets_train, args.batchsize)
+			print(mean(ppl_train), ppl_train)
 
-	if buckets_dev is not None:
-		print_bold("ppl (dev)")
-		ppl_dev = compute_perplexity(model, buckets_dev, args.batchsize)
-		print(mean(ppl_dev), ppl_dev)
+		if buckets_dev is not None:
+			print_bold("ppl (dev)")
+			ppl_dev = compute_perplexity(model, buckets_dev, args.batchsize)
+			print(mean(ppl_dev), ppl_dev)
 
-	if buckets_test is not None:
-		print_bold("ppl (test)")
-		ppl_test = compute_perplexity(model, buckets_test, args.batchsize)
-		print(mean(ppl_test), ppl_dev)
+		if buckets_test is not None:
+			print_bold("ppl (test)")
+			ppl_test = compute_perplexity(model, buckets_test, args.batchsize)
+			print(mean(ppl_test), ppl_dev)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

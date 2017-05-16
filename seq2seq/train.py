@@ -38,9 +38,9 @@ def main(args):
 
 	# split into buckets
 	source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
-	if args.buckets_limit is not None:
-		source_buckets_train = source_buckets_train[:args.buckets_limit+1]
-		target_buckets_train = target_buckets_train[:args.buckets_limit+1]
+	if args.buckets_slice is not None:
+		source_buckets_train = source_buckets_train[:args.buckets_slice + 1]
+		target_buckets_train = target_buckets_train[:args.buckets_slice + 1]
 
 	print_bold("buckets 	#data	(train)")
 	for size, data in zip(bucket_sizes, source_buckets_train):
@@ -48,17 +48,17 @@ def main(args):
 
 	print_bold("buckets 	#data	(dev)")
 	source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
-	if args.buckets_limit is not None:
-		source_buckets_dev = source_buckets_dev[:args.buckets_limit+1]
-		target_buckets_dev = target_buckets_dev[:args.buckets_limit+1]
+	if args.buckets_slice is not None:
+		source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
+		target_buckets_dev = target_buckets_dev[:args.buckets_slice + 1]
 	for size, data in zip(bucket_sizes, source_buckets_dev):
 		print("{} 	{}".format(size, len(data)))
 
 	print_bold("buckets		#data	(test)")
 	source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
-	if args.buckets_limit is not None:
-		source_buckets_test = source_buckets_test[:args.buckets_limit+1]
-		target_buckets_test = target_buckets_test[:args.buckets_limit+1]
+	if args.buckets_slice is not None:
+		source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
+		target_buckets_test = target_buckets_test[:args.buckets_slice + 1]
 	for size, data in zip(bucket_sizes, source_buckets_test):
 		print("{} 	{}".format(size, len(data)))
 
@@ -87,14 +87,11 @@ def main(args):
 		model.to_gpu()
 
 	# setup an optimizer
-	if args.eve:
-		optimizer = Eve(alpha=args.learning_rate, beta1=0.9)
-	else:
-		optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
+	optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	min_learning_rate = 1e-3
+	final_learning_rate = 1e-5
 	prev_wer = None
 	total_time = 0
 
@@ -105,60 +102,63 @@ def main(args):
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		start_time = time.time()
-		for itr in xrange(1, num_iteration + 1):
-			for repeat, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
-				for r in xrange(repeat):
-					# sample minibatch
-					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
-					skip_mask = source_batch != ID_PAD
-					target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
-					# to gpu
-					if model.xp is cuda.cupy:
-						skip_mask = cuda.to_gpu(skip_mask)
-						source_batch = cuda.to_gpu(source_batch)
-						target_batch_input = cuda.to_gpu(target_batch_input)
-						target_batch_output = cuda.to_gpu(target_batch_output)
+		with chainer.using_config("train", True):
+			for itr in xrange(1, num_iteration + 1):
+				for repeat, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
+					for r in xrange(repeat):
+						# sample minibatch
+						source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
+						skip_mask = source_batch != ID_PAD
+						target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
-					# compute loss
-					model.reset_state()
-					if args.attention:
-						last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
-						Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
-					else:
-						last_hidden_states = model.encode(source_batch, skip_mask)
-						Y = model.decode(target_batch_input, last_hidden_states)
-					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
-					optimizer.update(lossfun=lambda: loss)
+						# to gpu
+						if model.xp is cuda.cupy:
+							skip_mask = cuda.to_gpu(skip_mask)
+							source_batch = cuda.to_gpu(source_batch)
+							target_batch_input = cuda.to_gpu(target_batch_input)
+							target_batch_output = cuda.to_gpu(target_batch_output)
 
-				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
-				sys.stdout.flush()
+						# compute loss
+						model.reset_state()
+						if args.attention:
+							last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
+							Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
+						else:
+							last_hidden_states = model.encode(source_batch, skip_mask)
+							Y = model.decode(target_batch_input, last_hidden_states)
+						loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
+						optimizer.update(lossfun=lambda: loss)
 
-			if itr % args.interval == 0 or itr == num_iteration:
-				save_model(args.model_dir, model)
+					sys.stdout.write("\r{} / {}".format(itr, num_iteration))
+					sys.stdout.flush()
 
 		# show log
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
-		print_bold("translate (train)")
-		show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
-		print_bold("translate (dev)")
-		show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
-		print_bold("WER (sampled train)")
-		wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=8)
-		print(mean(wer_train), wer_train)
-		# print_bold("WER (dev)")
-		# wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=1)
-		# mean_wer_dev = mean(wer_dev)
-		# print(mean_wer_dev, wer_dev)
+
+		with chainer.using_config("train", False):
+			print_bold("translate (train)")
+			show_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
+
+			print_bold("translate (dev)")
+			show_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=8)
+
+			print_bold("WER (sampled train)")
+			wer_train = compute_mean_wer(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=8)
+			print(mean(wer_train), wer_train)
+
+			print_bold("WER (dev)")
+			wer_dev = compute_mean_wer(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), batchsize=args.batchsize // 8, beam_width=1)
+			print(mean(wer_dev), wer_dev)
+
 		elapsed_time = (time.time() - start_time) / 60.
 		total_time += elapsed_time
 		print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
-		if prev_wer is not None and mean_wer_dev >= prev_wer and optimizer.alpha > min_learning_rate:
-			optimizer.alpha *= 0.1
-		prev_wer = mean_wer_dev
+		if optimizer.alpha > final_learning_rate:
+			optimizer.alpha *= 0.95
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -178,13 +178,12 @@ if __name__ == "__main__":
 	parser.add_argument("--dev-split", type=float, default=0.05)
 	parser.add_argument("--source-filename", "-source", default=None)
 	parser.add_argument("--target-filename", "-target", default=None)
-	parser.add_argument("--buckets-limit", type=int, default=None)
+	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
-	parser.add_argument("--eve", default=False, action="store_true")
 	parser.add_argument("--attention", "-attention", default=False, action="store_true")
 	args = parser.parse_args()
 	main(args)

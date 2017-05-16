@@ -128,9 +128,9 @@ def main(args):
 				ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
 				print("	", mean(ppl_dev), ppl_dev)
 
-			elapsed_time = (time.time() - start_time) / 60.
-			total_time += elapsed_time
-			print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
+		elapsed_time = (time.time() - start_time) / 60.
+		total_time += elapsed_time
+		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
 		if optimizer.alpha > final_learning_rate:
