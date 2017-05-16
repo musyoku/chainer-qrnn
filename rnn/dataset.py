@@ -3,7 +3,7 @@ import codecs, random
 import numpy as np
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes
 
-def read_data(filename_train, filename_dev):
+def read_data(filename_train=None, filename_dev=None, filename_test=None):
 	vocab = {
 		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
@@ -12,21 +12,23 @@ def read_data(filename_train, filename_dev):
 	}
 	dataset_train = []
 	dataset_dev = []
+	dataset_test = []
 
-	with codecs.open(filename_train, "r", "utf-8") as f:
-		for sentence in f:
-			sentence = sentence.strip()
-			if len(sentence) == 0:
-				continue
-			word_ids = [ID_BOS]
-			words = sentence.split(" ")
-			for word in words:
-				if word not in vocab:
-					vocab[word] = len(vocab)
-				word_id = vocab[word]
-				word_ids.append(word_id)
-			word_ids.append(ID_EOS)
-			dataset_train.append(word_ids)
+	if filename_train is not None:
+		with codecs.open(filename_train, "r", "utf-8") as f:
+			for sentence in f:
+				sentence = sentence.strip()
+				if len(sentence) == 0:
+					continue
+				word_ids = [ID_BOS]
+				words = sentence.split(" ")
+				for word in words:
+					if word not in vocab:
+						vocab[word] = len(vocab)
+					word_id = vocab[word]
+					word_ids.append(word_id)
+				word_ids.append(ID_EOS)
+				dataset_train.append(word_ids)
 
 	if filename_dev is not None:
 		with codecs.open(filename_dev, "r", "utf-8") as f:
@@ -44,11 +46,27 @@ def read_data(filename_train, filename_dev):
 				word_ids.append(ID_EOS)
 				dataset_dev.append(word_ids)
 
+	if filename_test is not None:
+		with codecs.open(filename_dev, "r", "utf-8") as f:
+			for sentence in f:
+				sentence = sentence.strip()
+				if len(sentence) == 0:
+					continue
+				word_ids = [ID_BOS]
+				words = sentence.split(" ")
+				for word in words:
+					if word not in vocab:
+						vocab[word] = len(vocab)
+					word_id = vocab[word]
+					word_ids.append(word_id)
+				word_ids.append(ID_EOS)
+				dataset_test.append(word_ids)
+
 	vocab_inv = {}
 	for word, word_id in vocab.items():
 		vocab_inv[word_id] = word
 
-	return dataset_train, dataset_dev, vocab, vocab_inv
+	return dataset_train, dataset_dev, dataset_test, vocab, vocab_inv
 
 # input:
 # [0, a, b, c, 1]

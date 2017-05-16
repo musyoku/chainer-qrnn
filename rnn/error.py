@@ -193,34 +193,43 @@ def compute_random_perplexity(model, buckets, batchsize=100):
 
 def main(args):
 	# load textfile
-	train_dataset, dev_dataset, test_dataset, vocab, vocab_inv = read_data(args.text_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
+	dataset_train, dataset_dev, dataset_test, vocab, vocab_inv = read_data(args.train_filename, args.dev_filename, args.test_filename)
 	vocab_size = len(vocab)
-	print_bold("data	#")
-	print("train	{}".format(len(train_dataset)))
-	print("dev	{}".format(len(dev_dataset)))
-	print("test	{}".format(len(test_dataset)))
+	print_bold("data	#	hash")
+	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))
+	if len(dataset_dev) > 0:
+		print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
+	if len(dataset_test) > 0:
+		print("test	{}	{}".format(len(dataset_test), hash(str(dataset_test))))
 	print("vocab	{}".format(vocab_size))
 
 	# split into buckets
-	train_buckets = make_buckets(train_dataset)
+	buckets_train = None
+	if len(dataset_train) > 0:
+		print_bold("buckets	#data	(train)")
+		buckets_train = make_buckets(dataset_train)
+		if args.buckets_slice is not None:
+			buckets_train = buckets_train[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, buckets_train):
+			print("{}	{}".format(size, len(data)))
 
-	print_bold("buckets	#data	(train)")
-	if args.buckets_limit is not None:
-		train_buckets = train_buckets[:args.buckets_limit+1]
-	for size, data in zip(bucket_sizes, train_buckets):
-		print("{}	{}".format(size, len(data)))
+	buckets_dev = None
+	if len(dataset_dev) > 0:
+		print_bold("buckets	#data	(dev)")
+		buckets_dev = make_buckets(dataset_dev)
+		if args.buckets_slice is not None:
+			buckets_dev = buckets_dev[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, buckets_dev):
+			print("{}	{}".format(size, len(data)))
 
-	print_bold("buckets	#data	(dev)")
-	dev_buckets = make_buckets(dev_dataset)
-	if args.buckets_limit is not None:
-		dev_buckets = dev_buckets[:args.buckets_limit+1]
-	for size, data in zip(bucket_sizes, dev_buckets):
-		print("{}	{}".format(size, len(data)))
-
-	print_bold("buckets	#data	(test)")
-	test_buckets = make_buckets(test_dataset)
-	for size, data in zip(bucket_sizes, test_buckets):
-		print("{}	{}".format(size, len(data)))
+	buckets_test = None
+	if len(dataset_dev) > 0:
+		print_bold("buckets	#data	(test)")
+		buckets_test = make_buckets(dataset_test)
+		if args.buckets_slice is not None:
+			buckets_test = buckets_test[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, buckets_test):
+			print("{}	{}".format(size, len(data)))
 
 	# init
 	model = load_model(args.model_dir)
@@ -232,33 +241,36 @@ def main(args):
 	# show log
 	def mean(l):
 		return sum(l) / len(l)
+
 	sys.stdout.write("\r" + stdout.CLEAR)
 	sys.stdout.flush()
-	# print_bold("accuracy (train)")
-	# acc_train = compute_accuracy(model, train_buckets, args.batchsize)
-	# print(mean(acc_train), acc_train)
-	# print_bold("accuracy (dev)")
-	# acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
-	# print(mean(acc_dev), acc_dev)
-	print_bold("ppl (train)")
-	ppl_train = compute_perplexity(model, train_buckets, args.batchsize)
-	print(mean(ppl_train), ppl_train)
-	print_bold("ppl (dev)")
-	ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
-	print(mean(ppl_dev), ppl_dev)
-	print_bold("ppl (test)")
-	ppl_test = compute_perplexity(model, test_buckets, args.batchsize)
-	print(mean(ppl_test), ppl_dev)
+
+	if buckets_train is not None:
+		print_bold("ppl (train)")
+		ppl_train = compute_perplexity(model, buckets_train, args.batchsize)
+		print(mean(ppl_train), ppl_train)
+
+	if buckets_dev is not None:
+		print_bold("ppl (dev)")
+		ppl_dev = compute_perplexity(model, buckets_dev, args.batchsize)
+		print(mean(ppl_dev), ppl_dev)
+
+	if buckets_test is not None:
+		print_bold("ppl (test)")
+		ppl_test = compute_perplexity(model, buckets_test, args.batchsize)
+		print(mean(ppl_test), ppl_dev)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--seed", type=int, default=0)
-	parser.add_argument("--batchsize", "-b", type=int, default=100)
+	parser.add_argument("--batchsize", "-b", type=int, default=96)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--train-split", type=float, default=0.9)
 	parser.add_argument("--dev-split", type=float, default=0.05)
-	parser.add_argument("--buckets-limit", type=int, default=None)
+	parser.add_argument("--buckets-slice", type=int, default=None)
+	parser.add_argument("--train-filename", "-train", default=None)
+	parser.add_argument("--dev-filename", "-dev", default=None)
+	parser.add_argument("--test-filename", "-test", default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
-	parser.add_argument("--text-filename", "-f", default=None)
 	args = parser.parse_args()
 	main(args)

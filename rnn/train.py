@@ -17,12 +17,13 @@ from error import compute_accuracy, compute_random_accuracy, compute_perplexity,
 
 def main(args):
 	# load textfile
-	dataset_train, dataset_dev, vocab, vocab_inv = read_data(args.train_filename, args.dev_filename)
+	dataset_train, dataset_dev, _, vocab, vocab_inv = read_data(args.train_filename, args.dev_filename)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 	vocab_size = len(vocab)
 	print_bold("data	#	hash")
 	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))
-	print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
+	if len(dataset_dev) > 0:
+		print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
 	print("vocab	{}".format(vocab_size))
 
 	# split into buckets
@@ -72,8 +73,8 @@ def main(args):
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
-	final_learning_rate = 1e-5
-	decay_factor = 0.95
+	final_learning_rate = 1e-4
+	decay_factor = 0.85
 	total_time = 0
 
 	def mean(l):
@@ -129,7 +130,8 @@ def main(args):
 		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
-		optimizer.alpha *= decay_factor
+		if optimizer.alpha > final_learning_rate:
+			optimizer.alpha *= decay_factor
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -145,7 +147,7 @@ if __name__ == "__main__":
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=0.01)
-	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
 	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--train-filename", "-train", default=None)
