@@ -117,94 +117,74 @@ class RNNModel(Chain):
 		for i in xrange(self.num_layers):
 			self.get_rnn_layer(i).reset_state()
 
-	def _forward_layer(self, layer_index, in_data, test=False):
-		if test:
-			in_data.unchain_backward()
+	def _forward_layer(self, layer_index, in_data):
 		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio)
 		rnn = self.get_rnn_layer(layer_index)
-		out_data = rnn(in_data, test=test)
-		if test:
-			out_data.unchain_backward()
+		out_data = rnn(in_data)
 		return out_data
 
 	# we use "dense convolution"
 	# https://arxiv.org/abs/1608.06993
-	def __call__(self, X, test=False, return_last=False):
+	def __call__(self, X, return_last=False):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		enmbedding = self.embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_layer(0, enmbedding, test=test)
+		out_data = self._forward_layer(0, enmbedding)
 		in_data = [out_data]
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1], test=test)	# dense conv
+			out_data = self._forward_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1])	# dense conv
 			in_data.append(out_data)
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
-
-		if test:
-			out_data.unchain_backward()
 
 		if return_last:
 			out_data = out_data[:, :, -1, None]
 
 		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
 
-		if test:
-			Y.unchain_backward()
-
 		return Y
 
-	def _forward_layer_one_step(self, layer_index, in_data, test=False):
-		if test:
-			in_data.unchain_backward()
+	def _forward_layer_one_step(self, layer_index, in_data):
 		rnn = self.get_rnn_layer(layer_index)
 		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
-		out_data = rnn.forward_one_step(in_data, test=test)
-		if test:
-			out_data.unchain_backward()
+			in_data = F.dropout(in_data, ratio=self.dropout_ratio)
+		out_data = rnn.forward_one_step(in_data)
 		return out_data
 
-	def forward_one_step(self, X, test=False):
+	def forward_one_step(self, X):
 		batchsize = X.shape[0]
 		seq_length = X.shape[1]
 		ksize = self.kernel_size
 
 		if seq_length < ksize:
 			self.reset_state()
-			return self.__call__(X, test=test, return_last=True)
+			return self.__call__(X, return_last=True)
 
 		xt = X[:, -ksize:]
 		enmbedding = self.embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
 
-		out_data = self._forward_layer_one_step(0, enmbedding, test=test)[:, :, -ksize:]
+		out_data = self._forward_layer_one_step(0, enmbedding)[:, :, -ksize:]
 		in_data = [out_data]
 		
 		for layer_index in xrange(1, self.num_layers):
-			out_data = self._forward_layer_one_step(layer_index, sum(in_data) if self.densely_connected else in_data[-1], test=test)[:, :, -ksize:]	# dense conv
+			out_data = self._forward_layer_one_step(layer_index, sum(in_data) if self.densely_connected else in_data[-1])[:, :, -ksize:]	# dense conv
 			in_data.append(out_data)
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
-		if test:
-			out_data.unchain_backward()
-
 		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+			out_data = F.dropout(out_data, ratio=self.dropout_ratio)
 			
 		out_data = out_data[:, :, -1, None]
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
-
-		if test:
-			Y.unchain_backward()
 
 		return Y

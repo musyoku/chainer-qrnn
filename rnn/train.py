@@ -84,21 +84,23 @@ def main(args):
 	for epoch in xrange(1, args.epoch + 1):
 		print("Epoch", epoch)
 		start_time = time.time()
-		for itr in xrange(1, num_iteration + 1):
-			sys.stdout.write("\r{} / {}".format(itr, num_iteration))
-			sys.stdout.flush()
 
-			for repeat, dataset in zip(repeats, train_buckets):
-				for r in xrange(repeat):
-					batch = sample_batch_from_bucket(dataset, args.batchsize)
-					source, target = make_source_target_pair(batch)
-					if model.xp is cuda.cupy:
-						source = cuda.to_gpu(source)
-						target = cuda.to_gpu(target)
-					model.reset_state()
-					Y = model(source)
-					loss = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
-					optimizer.update(lossfun=lambda: loss)
+		with chainer.using_config("train", True):
+			for itr in xrange(1, num_iteration + 1):
+				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
+				sys.stdout.flush()
+
+				for repeat, dataset in zip(repeats, train_buckets):
+					for r in xrange(repeat):
+						batch = sample_batch_from_bucket(dataset, args.batchsize)
+						source, target = make_source_target_pair(batch)
+						if model.xp is cuda.cupy:
+							source = cuda.to_gpu(source)
+							target = cuda.to_gpu(target)
+						model.reset_state()
+						Y = model(source)
+						loss = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
+						optimizer.update(lossfun=lambda: loss)
 
 		# serialize
 		save_model(args.model_dir, model)
@@ -107,27 +109,28 @@ def main(args):
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 
-		print_bold("	accuracy (sampled train)")
-		acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
-		print("	", mean(acc_train), acc_train)
+		with chainer.using_config("train", False):
+			print_bold("	accuracy (sampled train)")
+			acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
+			print("	", mean(acc_train), acc_train)
 
-		if dev_buckets is not None:
-			print_bold("	accuracy (dev)")
-			acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
-			print("	", mean(acc_dev), acc_dev)
+			if dev_buckets is not None:
+				print_bold("	accuracy (dev)")
+				acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
+				print("	", mean(acc_dev), acc_dev)
 
-		print_bold("	ppl (sampled train)")
-		ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
-		print("	", mean(ppl_train), ppl_train)
+			print_bold("	ppl (sampled train)")
+			ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
+			print("	", mean(ppl_train), ppl_train)
 
-		if dev_buckets is not None:
-			print_bold("	ppl (dev)")
-			ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
-			print("	", mean(ppl_dev), ppl_dev)
+			if dev_buckets is not None:
+				print_bold("	ppl (dev)")
+				ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
+				print("	", mean(ppl_dev), ppl_dev)
 
-		elapsed_time = (time.time() - start_time) / 60.
-		total_time += elapsed_time
-		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
+			elapsed_time = (time.time() - start_time) / 60.
+			total_time += elapsed_time
+			print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
 		if optimizer.alpha > final_learning_rate:
@@ -138,7 +141,7 @@ if __name__ == "__main__":
 	parser.add_argument("--batchsize", "-b", type=int, default=24)
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
+	parser.add_argument("--grad-clip", "-gc", type=float, default=10) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
