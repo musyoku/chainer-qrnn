@@ -10,7 +10,7 @@ from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
-from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
+from dataset import read_data_and_vocab, make_buckets, make_source_target_pair, sample_batch_from_bucket
 from eve import Eve
 from model import seq2seq, load_model, save_model, save_vocab
 from error import compute_error_rate_buckets, compute_random_error_rate_buckets, softmax_cross_entropy
@@ -21,7 +21,7 @@ from translate import dump_random_source_target_translation
 
 def main(args):
 	# load textfile
-	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_train, args.target_train, args.source_dev, args.target_dev, reverse_source=True)
+	source_dataset, target_dataset, vocab, vocab_inv = read_data_and_vocab(args.source_train, args.target_train, args.source_dev, args.target_dev, args.source_test, args.target_test, reverse_source=True)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
@@ -147,21 +147,21 @@ def main(args):
 			sys.stdout.write("\r" + stdout.CLEAR)
 			sys.stdout.flush()
 
-			# print_bold("translate (train)")
-			# dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
+			if epoch % args.interval == 0:
+				print_bold("translate (train)")
+				dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
-			# if source_dataset_dev is not None:
-			# 	print_bold("translate (dev)")
-			# 	dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
-
-			# print_bold("WER (train)")
-			# wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
-			# print(mean(wer_train), wer_train)
-
-			if epoch % 10 == 0:
 				if source_dataset_dev is not None:
-					print_bold("WER (train)")
-					wer_dev = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
+					print_bold("translate (dev)")
+					dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
+
+				print_bold("WER (train)")
+				wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
+				print(mean(wer_train), wer_train)
+
+				if source_dataset_dev is not None:
+					print_bold("WER (dev)")
+					wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
 					print(mean(wer_dev), wer_dev)
 
 			elapsed_time = (time.time() - start_time) / 60.
@@ -176,11 +176,14 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--source-train", type=str, default=None)
 	parser.add_argument("--source-dev", type=str, default=None)
+	parser.add_argument("--source-test", type=str, default=None)
 	parser.add_argument("--target-train", type=str, default=None)
 	parser.add_argument("--target-dev", type=str, default=None)
+	parser.add_argument("--target-test", type=str, default=None)
 
 	parser.add_argument("--batchsize", "-b", type=int, default=64)
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
+	parser.add_argument("--interval", type=int, default=10)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 

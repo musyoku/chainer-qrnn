@@ -247,7 +247,7 @@ def compute_error_rate_source_batch(model, source_batch, target_batch, target_vo
 
 	for n in xrange(batchsize):
 		target_tokens = []
-		for token in target_batch[n, :]:
+		for token in target_batch[n]:
 			token = int(token)	# to cpu
 			if token == ID_PAD:
 				break
@@ -256,6 +256,7 @@ def compute_error_rate_source_batch(model, source_batch, target_batch, target_vo
 			if token == ID_GO:
 				continue
 			target_tokens.append(token)
+		assert len(target_tokens) > 0
 
 		predict_tokens = []
 		for token in x[n]:
@@ -267,6 +268,7 @@ def compute_error_rate_source_batch(model, source_batch, target_batch, target_vo
 			if token == ID_GO:
 				continue
 			predict_tokens.append(token)
+		assert len(predict_tokens) > 0
 
 		wer = compute_error_rate_target_prediction(target_tokens, predict_tokens)
 		sum_wer += wer
@@ -287,6 +289,7 @@ def compute_error_rate_source_sequence(model, source, target, target_vocab_size,
 		if token == ID_GO:
 			continue
 		target_tokens.append(token)
+		assert len(target_tokens) > 0
 
 	predict_tokens = []
 	for token in x:
@@ -298,6 +301,7 @@ def compute_error_rate_source_sequence(model, source, target, target_vocab_size,
 		if token == ID_GO:
 			continue
 		predict_tokens.append(token)
+		assert len(predict_tokens) > 0
 
 	return compute_error_rate_target_prediction(target_tokens, predict_tokens)
 
@@ -370,9 +374,11 @@ def compute_random_error_rate_buckets(model, source_buckets, target_buckets, tar
 	return result
 
 def main(args):
-	# load textfile
-	source_dataset, target_dataset, _, _ = read_data(args.source_train, args.target_train, args.source_dev, args.target_dev, args.source_test, args.target_test, reverse_source=True)
 	vocab, vocab_inv = load_vocab(args.model_dir)
+	vocab_source, vocab_target = vocab
+	vocab_inv_source, vocab_inv_target = vocab_inv
+
+	source_dataset, target_dataset = read_data(vocab_source, vocab_target, args.source_train, args.target_train, args.source_dev, args.target_dev, args.source_test, args.target_test, reverse_source=True)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
@@ -385,8 +391,6 @@ def main(args):
 		print("test	{}".format(len(source_dataset_test)))
 
 
-	vocab_source, vocab_target = vocab
-	vocab_inv_source, vocab_inv_target = vocab_inv
 	print("vocab	{}	(source)".format(len(vocab_source)))
 	print("vocab	{}	(target)".format(len(vocab_target)))
 
@@ -428,23 +432,20 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
-	beam_width = 8
-	normalization_alpha = 0.
-
 	with chainer.using_config("train", False):
 		if source_buckets_train is not None:
 			print_bold("WER (train)")
-			wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_target), beam_width, normalization_alpha)
+			wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_target), args.beam_width, args.alpha)
 			print(wer_train)
 
 		if source_buckets_dev is not None:
 			print_bold("WER (dev)")
-			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_target), beam_width, normalization_alpha)
+			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_target), args.beam_width, args.alpha)
 			print(wer_dev)
 
 		if source_buckets_test is not None:
 			print_bold("WER (test)")
-			wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_target), beam_width, normalization_alpha)
+			wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_target), args.beam_width, args.alpha)
 			print(wer_test)
 
 if __name__ == "__main__":
@@ -458,5 +459,7 @@ if __name__ == "__main__":
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
+	parser.add_argument("--beam-width", "-beam", type=int, default=8)
+	parser.add_argument("--alpha", "-alpha", type=float, default=0)
 	args = parser.parse_args()
 	main(args)

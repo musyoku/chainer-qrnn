@@ -3,7 +3,7 @@ import codecs, random
 import numpy as np
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes
 
-def read_data(source_filename_train=None, target_filename_train=None, source_filename_dev=None, target_filename_dev=None, source_filename_test=None, target_filename_test=None, reverse_source=True):
+def read_data_and_vocab(source_filename_train=None, target_filename_train=None, source_filename_dev=None, target_filename_dev=None, source_filename_test=None, target_filename_test=None, reverse_source=True):
 	vocab_source = {
 		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
@@ -21,7 +21,7 @@ def read_data(source_filename_train=None, target_filename_train=None, source_fil
 	target_dataset_dev = []
 	target_dataset_test = []
 
-	def add_file(filename, vocab, dataset):
+	def add_file(filename, vocab, dataset, prefix=None, suffix=None, reverse=False):
 		if filename is None:
 			return
 		with codecs.open(filename, "r", "utf-8") as f:
@@ -30,23 +30,27 @@ def read_data(source_filename_train=None, target_filename_train=None, source_fil
 				if len(sentence) == 0:
 					continue
 				word_ids = []
+				if prefix:
+					word_ids.append(prefix)
 				words = sentence.split(" ")
 				for word in words:
 					if word not in vocab:
 						vocab[word] = len(vocab)
 					word_id = vocab[word]
 					word_ids.append(word_id)
-				if reverse_source:
+				if suffix:
+					word_ids.append(suffix)
+				if reverse:
 					word_ids.reverse()
 				dataset.append(word_ids)
 
-	add_file(source_filename_train, vocab_source, source_dataset_train)
-	add_file(source_filename_dev, vocab_source, source_dataset_dev)
-	add_file(source_filename_test, vocab_source, source_dataset_test)
+	add_file(source_filename_train, vocab_source, source_dataset_train, reverse=reverse_source)
+	add_file(source_filename_dev, vocab_source, source_dataset_dev, reverse=reverse_source)
+	add_file(source_filename_test, vocab_source, source_dataset_test, reverse=reverse_source)
 
-	add_file(target_filename_train, vocab_target, target_dataset_train)
-	add_file(target_filename_dev, vocab_target, target_dataset_dev)
-	add_file(target_filename_test, vocab_target, target_dataset_test)
+	add_file(target_filename_train, vocab_target, target_dataset_train, ID_GO, ID_EOS)
+	add_file(target_filename_dev, vocab_target, target_dataset_dev, ID_GO, ID_EOS)
+	add_file(target_filename_test, vocab_target, target_dataset_test, ID_GO, ID_EOS)
 
 	vocab_inv_source = {}
 	for word, word_id in vocab_source.items():
@@ -57,6 +61,48 @@ def read_data(source_filename_train=None, target_filename_train=None, source_fil
 		vocab_inv_target[word_id] = word
 		
 	return (source_dataset_train, source_dataset_dev, source_dataset_test), (target_dataset_train, target_dataset_dev, target_dataset_test), (vocab_source, vocab_target), (vocab_inv_source, vocab_inv_target)
+
+def read_data(vocab_source, vocab_target, source_filename_train=None, target_filename_train=None, source_filename_dev=None, target_filename_dev=None, source_filename_test=None, target_filename_test=None, reverse_source=True):
+	source_dataset_train = []
+	source_dataset_dev = []
+	source_dataset_test = []
+	target_dataset_train = []
+	target_dataset_dev = []
+	target_dataset_test = []
+
+	def add_file(filename, vocab, dataset, prefix=None, suffix=None, reverse=False):
+		if filename is None:
+			return
+		with codecs.open(filename, "r", "utf-8") as f:
+			for sentence in f:
+				sentence = sentence.strip()
+				if len(sentence) == 0:
+					continue
+				word_ids = []
+				if prefix:
+					word_ids.append(prefix)
+				words = sentence.split(" ")
+				for word in words:
+					if word in vocab:
+						word_id = vocab[word]
+					else:
+						word_id = ID_UNK
+					word_ids.append(word_id)
+				if suffix:
+					word_ids.append(suffix)
+				if reverse:
+					word_ids.reverse()
+				dataset.append(word_ids)
+
+	add_file(source_filename_train, vocab_source, source_dataset_train, reverse=reverse_source)
+	add_file(source_filename_dev, vocab_source, source_dataset_dev, reverse=reverse_source)
+	add_file(source_filename_test, vocab_source, source_dataset_test, reverse=reverse_source)
+
+	add_file(target_filename_train, vocab_target, target_dataset_train, ID_GO, ID_EOS)
+	add_file(target_filename_dev, vocab_target, target_dataset_dev, ID_GO, ID_EOS)
+	add_file(target_filename_test, vocab_target, target_dataset_test, ID_GO, ID_EOS)
+		
+	return (source_dataset_train, source_dataset_dev, source_dataset_test), (target_dataset_train, target_dataset_dev, target_dataset_test)
 
 # input:
 # [34, 1093, 22504, 16399]

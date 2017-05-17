@@ -40,71 +40,6 @@ def make_buckets(dataset):
 		buckets.append(np.asarray(bucket_source).astype(np.int32))
 	return buckets
 
-# https://harvardnlp.github.io/seq2seq-talk/slidescmu.pdf
-# def _beam_search(model, x, t, beam_width, log_p_t_beam, sum_log_p_beam, vocab_size, backward_table, token_table, endpoint_list, perplexity_list, top_k):
-# 	if top_k <= 0:
-# 		return 0
-# 	assert beam_width == len(sum_log_p_beam)
-# 	xp = model.xp
-
-# 	def argmax_k(array, k):
-# 		if xp is np:
-# 			return array.argsort()[-k:][::-1]
-# 		else:
-# 			result = []
-# 			min_value = xp.amin(array)
-# 			for n in xrange(k):
-# 				result.append(xp.argmax(array))
-# 				array[result[-1]] = min_value
-# 			return result
-
-# 	if t == 0:
-# 		score = log_p_t_beam[0]
-# 		indices_beam = argmax_k(score, beam_width)
-# 	else:
-# 		score = log_p_t_beam + xp.repeat(sum_log_p_beam, vocab_size, axis=1)
-# 		score = score.reshape((-1,))
-# 		indices_beam = argmax_k(score, beam_width)
-
-# 	if t == 0:
-# 		for beam, index in enumerate(indices_beam):
-# 			token = index % vocab_size
-# 			backward = index // vocab_size
-# 			backward_table[beam, t] = backward
-# 			token_table[beam, t] = token
-# 			sum_log_p_beam[beam] += log_p_t_beam[backward, token]
-# 			if token == ID_EOS:
-# 				endpoint_list.append((t, beam))
-# 				perplexity_list.append(float(sum_log_p_beam[beam]) / t)
-# 				top_k -= 1
-# 		return top_k
-
-# 	k = 0
-# 	for beam in xrange(beam_width):
-# 		backward_table[beam, t] = -1
-
-# 	for beam, index in enumerate(indices_beam):
-# 		token = index % vocab_size
-# 		backward = index // vocab_size
-# 		prev_token = x[backward, t]
-# 		if prev_token == ID_EOS or prev_token == ID_PAD:
-# 			continue
-# 		sum_log_p_beam[beam] += log_p_t_beam[backward, token]
-# 		print(beam, token, backward)
-# 		backward_table[beam, t] = backward
-# 		token_table[beam, t] = token
-# 		if token == ID_EOS:
-# 			endpoint_list.append((t, beam))
-# 			perplexity_list.append(float(sum_log_p_beam[beam]) / t)
-# 			top_k -= 1
-
-# 	for beam in xrange(beam_width):
-# 		backward = backward_table[beam, t]
-# 		if backward == -1:
-# 			print(beam)
-# 	return top_k
-
-
 def translate_greedy(model, source_batch, max_predict_length, vocab_size, source_reversed=True):
 	xp = model.xp
 	skip_mask = source_batch != ID_PAD
@@ -290,9 +225,12 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 		scores[i] = score
 
 	if return_all_candidates == True:
-		indices = np.flip(np.argsort(scores))
-		print(scores)
-		print(indices)
+		result = [[] for i in xrange(len(candidates))]
+		indices = np.flip(np.argsort(scores), axis=0)
+		for index in indices:
+			for token in (candidates[index]):
+				result[index].append(token)
+		return result
 
 	best_index = np.argmax(scores)
 	result = []
@@ -300,98 +238,55 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 		result.append(token)
 	return result
 
-# def translate_greedy(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
-# 	xp = model.xp
-# 	skip_mask = source_batch != ID_PAD
-# 	batchsize = source_batch.shape[0]
-
-# 	# to gpu
-# 	if xp is cuda.cupy:
-# 		source_batch = cuda.to_gpu(source_batch)
-# 		skip_mask = cuda.to_gpu(skip_mask)
-
-# 	word_ids = xp.arange(0, vocab_size, dtype=xp.int32)
-
-# 	model.reset_state()
-# 	x = xp.full((batchsize * beam_width, 1), ID_GO, dtype=xp.int32)
-
-# 	# get encoder's last hidden states
-# 	if isinstance(model, AttentiveSeq2SeqModel):
-# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
-# 	else:
-# 		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True), None
-
-# 	# copy beam_width times
-# 	for i, state in enumerate(encoder_last_hidden_states):
-# 		encoder_last_hidden_states[i] = xp.repeat(state.data, beam_width, axis=0)
-# 	if encoder_last_layer_outputs is not None:
-# 		encoder_last_layer_outputs = xp.repeat(encoder_last_layer_outputs.data, beam_width, axis=0)
-# 	skip_mask = xp.repeat(skip_mask, beam_width, axis=0)
-
-# 	backward_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
-# 	token_table_batch = xp.zeros((beam_width * batchsize, max_predict_length), dtype=xp.int32)
-# 	sum_log_p_batch = xp.zeros((batchsize * beam_width, 1), dtype=xp.float32)
-# 	perplexity_list_batch = [[] * batchsize]
-# 	endpoint_list_batch = [[] * batchsize]
-# 	top_k = [beam_width] * batchsize
-
-# 	for t in xrange(max_predict_length):
-# 		model.reset_decoder_state()
-# 		if isinstance(model, AttentiveSeq2SeqModel):
-# 			u_t = model.decode(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True, return_last=True)
-# 		else:
-# 			u_t = model.decode(x, encoder_last_hidden_states, test=True, return_last=True)
-# 		p_t = F.softmax(u_t)	# convert to probability
-# 		log_p_t = F.log(p_t)
-
-# 		# concatenate
-# 		if xp is np:
-# 			x = xp.append(x, xp.full((batchsize * beam_width, 1), ID_PAD, dtype=xp.int32), axis=1)
-# 		else:
-# 			x = xp.concatenate((x, xp.full((batchsize * beam_width, 1), ID_PAD, dtype=xp.int32)), axis=1)
-
-# 		# beam search
-# 		for b in xrange(batchsize):
-# 			start = b * beam_width
-# 			end = (b + 1) * beam_width
-# 			log_p = log_p_t.data[start:end]
-# 			sum_log_p = sum_log_p_batch[start:end]
-# 			backward_table = backward_table_batch[start:end]
-# 			token_table = token_table_batch[start:end]
-# 			top_k[b] = _beam_search(model, x[start:end], t, beam_width, log_p, sum_log_p, vocab_size, backward_table, token_table, endpoint_list_batch[b], perplexity_list_batch[b], top_k[b])
-# 			# reconstruct input sequence
-# 			for beam in xrange(beam_width):
-# 				k = beam
-# 				for i in xrange(t + 1):
-# 					token = int(token_table[k, t-max_predict_length-i])
-# 					k = backward_table[k, t-max_predict_length-i]
-# 					x[start + beam, -i-1] = token
-
-# 	# backward
-# 	result = np.zeros((batchsize, max_predict_length), dtype=np.int32)
-# 	for b in xrange(batchsize):
-# 		start = b * beam_width
-# 		end = (b + 1) * beam_width
-# 		log_p = log_p_batch.data[start:end]
-# 		perplexity = perplexity_batch[start:end]
-# 		sum_log_p = sum_log_p_batch[start:end]
-# 		print(sum_log_p)
-# 		print(perplexity)
-# 		backward_table = backward_table_batch[start:end]
-# 		token_table = token_table_batch[start:end]
-# 		k = xp.argmax(sum_log_p)	# take maximum
-# 		tokens = []
-# 		for t in xrange(1, max_predict_length + 1):
-# 			token = int(token_table[k, -t])
-# 			tokens.append(token)
-# 			k = backward_table[k, -t]
-# 		tokens.reverse()
-# 		result[b] = tokens
-# 		print(tokens)
-
-# 	return result
-
 def dump_translation(vocab_inv_source, vocab_inv_target, source, translation, target=None, source_reversed=True):
+	sentence = []
+	for token in source:
+		token = int(token)	# to cpu
+		if token == ID_PAD:
+			continue
+		if token in vocab_inv_source:
+			word = vocab_inv_source[token]
+		else:
+			word = "<unk>"
+		sentence.append(word)
+	if source_reversed:
+		sentence.reverse()
+	print(">source: ", " ".join(sentence))
+
+	if target is not None:
+		sentence = []
+		for token in target:
+			token = int(token)	# to cpu
+			if token == ID_PAD:
+				break
+			if token == ID_EOS:
+				break
+			if token == ID_GO:
+				continue
+			if token in vocab_inv_target:
+				word = vocab_inv_target[token]
+			else:
+				word = "<unk>"
+			sentence.append(word)
+		print(" target: ", " ".join(sentence))
+
+	sentence = []
+	for token in translation:
+		token = int(token)	# to cpu
+		if token == ID_EOS:
+			break
+		if token == ID_PAD:
+			break
+		if token == ID_GO:
+			continue
+		if token in vocab_inv_target:
+			word = vocab_inv_target[token]
+		else:
+			word = "<unk>"
+		sentence.append(word)
+	print(" predict:", " ".join(sentence))
+
+def dump_all_translation(vocab_inv_source, vocab_inv_target, source, translations, target=None, source_reversed=True):
 	sentence = []
 	for token in source:
 		token = int(token)	# to cpu
@@ -417,38 +312,19 @@ def dump_translation(vocab_inv_source, vocab_inv_target, source, translation, ta
 			sentence.append(word)
 		print(" target: ", " ".join(sentence))
 
-	sentence = []
-	for token in translation:
-		token = int(token)	# to cpu
-		if token == ID_EOS:
-			break
-		if token == ID_PAD:
-			break
-		if token == ID_GO:
-			continue
-		word = vocab_inv_target[token]
-		sentence.append(word)
-	print(" predict:", " ".join(sentence))
-
-# def dump_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, batchsize=10):
-# 	for source_bucket, target_bucket in zip(source_buckets, target_buckets):
-# 		num_calculation = 0
-# 		sum_wer = 0
-
-# 		if len(source_bucket) > batchsize:
-# 			num_sections = len(source_bucket) // batchsize - 1
-# 			if len(source_bucket) % batchsize > 0:
-# 				num_sections += 1
-# 			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
-# 			source_sections = np.split(source_bucket, indices, axis=0)
-# 			target_sections = np.split(target_bucket, indices, axis=0)
-# 		else:
-# 			source_sections = [source_bucket]
-# 			target_sections = [target_bucket]
-
-# 		for source_batch, target_batch in zip(source_sections, target_sections):
-# 			translation_batch = translate_beam_search(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
-# 			dump_translation(vocab_inv_source, vocab_inv_target, source_batch, translation_batch, target_batch)
+	for index, translation in enumerate(translations):
+		sentence = []
+		for token in translation:
+			token = int(token)	# to cpu
+			if token == ID_EOS:
+				break
+			if token == ID_PAD:
+				break
+			if token == ID_GO:
+				continue
+			word = vocab_inv_target[token]
+			sentence.append(word)
+		print(" beam {}:".format(index + 1), " ".join(sentence))
 
 def dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, normalization_alpha=0):
 	for source_bucket in source_buckets:
@@ -460,23 +336,20 @@ def dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_t
 					num_sections += 1
 				indices = [(i + 1) * batchsize for i in xrange(num_sections)]
 				source_sections = np.split(source_bucket, indices, axis=0)
-				target_sections = np.split(target_bucket, indices, axis=0)
 			else:
 				source_sections = [source_bucket]
-				target_sections = [target_bucket]
 
-			for source_batch, target_batch in zip(source_sections, target_sections):
-				translation_batch = translate_greedy(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
+			for source_batch in source_sections:
+				translation_batch = translate_greedy(model, source_batch, source_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
 				for index in xrange(len(translation_batch)):
 					source = source_batch[index]
 					translation = translation_batch[index]
-					target = target_batch[index]
-					dump_translation(vocab_inv_source, vocab_inv_target, source, translation, target)
+					dump_translation(vocab_inv_source, vocab_inv_target, source, translation)
 		else:	# beam search
 			for index in xrange(len(source_bucket)):
 				source = source_bucket[index]
-				translation = translate_beam_search(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha, return_all_candidates=True)
-				dump_translation(vocab_inv_source, vocab_inv_target, source, translation)
+				translations = translate_beam_search(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha, return_all_candidates=True)
+				dump_all_translation(vocab_inv_source, vocab_inv_target, source, translations)
 
 def dump_random_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=3, beam_width=8):
 	xp = model.xp
@@ -499,8 +372,11 @@ def dump_random_source_target_translation(model, source_buckets, target_buckets,
 				dump_translation(vocab_inv_source, vocab_inv_target, source, translation_batch, target)
 
 def main(args):
-	source_dataset, target_dataset, _, _ = read_data(args.source_train, None, args.source_dev, None, args.source_test, None, reverse_source=True)
 	vocab, vocab_inv = load_vocab(args.model_dir)
+	vocab_source, vocab_target = vocab
+	vocab_inv_source, vocab_inv_target = vocab_inv
+
+	source_dataset, target_dataset = read_data(vocab_source, vocab_target, args.source_train, None, args.source_dev, None, args.source_test, None, reverse_source=True)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
@@ -512,8 +388,6 @@ def main(args):
 	if len(source_dataset_test) > 0:
 		print("test	{}".format(len(source_dataset_test)))
 
-	vocab_source, vocab_target = vocab
-	vocab_inv_source, vocab_inv_target = vocab_inv
 
 	# split into buckets
 	source_buckets_train = None
@@ -551,13 +425,13 @@ def main(args):
 		model.to_gpu()
 
 	if source_buckets_train is not None:
-		dump_source_translation(model, source_buckets_train, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=0)
+		dump_source_translation(model, source_buckets_train, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=args.alpha)
 
 	if source_buckets_dev is not None:
-		dump_source_translation(model, source_buckets_dev, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=0)
+		dump_source_translation(model, source_buckets_dev, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=args.alpha)
 
 	if source_buckets_test is not None:
-		dump_source_translation(model, source_buckets_test, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=0)
+		dump_source_translation(model, source_buckets_test, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=args.alpha)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -566,7 +440,8 @@ if __name__ == "__main__":
 	parser.add_argument("--source-test", type=str, default=None)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--buckets-slice", type=int, default=None)
-	parser.add_argument("--beam-width", "-beam", type=int, default=8)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
+	parser.add_argument("--beam-width", "-beam", type=int, default=8)
+	parser.add_argument("--alpha", "-alpha", type=float, default=0)
 	args = parser.parse_args()
 	main(args)
