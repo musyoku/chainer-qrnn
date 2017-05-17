@@ -10,12 +10,20 @@ todo:
 - [ ] seq2seq with attention
 - [ ] experiments
 
+[京都フリー翻訳タスク (KFTT)](http://www.phontron.com/kftt/index-ja.html#dataonly)
+
 ```
-spm_train  --input target.txt --model_prefix english --vocab_size 16000
-spm_train  --input source.txt --model_prefix japanese --vocab_size 16000
+cat dev.en train.en test.en > english.txt
+cat dev.ja train.ja test.ja > japanese.txt
+spm_train  --input english.txt --model_prefix english --vocab_size 16000
+spm_train  --input japanese.txt --model_prefix japanese --vocab_size 16000
 ```
 
 ```
-spm_encode --model english.model --output_format=piece < target.txt > english.txt
-spm_encode --model japanese.model --output_format=piece < source.txt > japanese.txt
+spm_encode --model english.model --output_format=piece < train.en > train.en.txt
+spm_encode --model english.model --output_format=piece < dev.en > dev.en.txt
+spm_encode --model english.model --output_format=piece < test.en > test.en.txt
+spm_encode --model english.model --output_format=piece < train.ja > train.ja.txt
+spm_encode --model english.model --output_format=piece < dev.ja > dev.ja.txt
+spm_encode --model english.model --output_format=piece < test.ja > test.ja.txt
 ```

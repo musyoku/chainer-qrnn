@@ -3,8 +3,7 @@ import codecs, random
 import numpy as np
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes
 
-def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split_ratio=0.05, seed=0, reverse=True):
-	assert(train_split_ratio + dev_split_ratio <= 1)
+def read_data(source_filename_train=None, target_filename_train=None, source_filename_dev=None, target_filename_dev=None, source_filename_test=None, target_filename_test=None, reverse_source=True):
 	vocab_source = {
 		"<pad>": ID_PAD,
 		"<unk>": ID_UNK,
@@ -15,45 +14,39 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 		"<eos>": ID_EOS,
 		"<go>": ID_GO,
 	}
-	source_dataset = []
-	with codecs.open(source_filename, "r", "utf-8") as f:
-		new_word_id = ID_UNK + 1
-		for sentence in f:
-			sentence = sentence.strip()
-			if len(sentence) == 0:
-				continue
-			word_ids = []
-			words = sentence.split(" ")
-			for word in words:
-				if word not in vocab_source:
-					vocab_source[word] = new_word_id
-					new_word_id += 1
-				word_id = vocab_source[word]
-				word_ids.append(word_id)
-			if reverse:
-				word_ids.reverse()
-			source_dataset.append(word_ids)
+	source_dataset_train = []
+	source_dataset_dev = []
+	source_dataset_test = []
+	target_dataset_train = []
+	target_dataset_dev = []
+	target_dataset_test = []
 
-	target_dataset = []
-	with codecs.open(target_filename, "r", "utf-8") as f:
-		i = 0
-		new_word_id = ID_GO + 1
-		for sentence in f:
-			i += 1
-			sentence = sentence.strip()
-			if len(sentence) == 0:
-				print(i)
-				continue
-			word_ids = [ID_GO]
-			words = sentence.split(" ")
-			for word in words:
-				if word not in vocab_target:
-					vocab_target[word] = new_word_id
-					new_word_id += 1
-				word_id = vocab_target[word]
-				word_ids.append(word_id)
-			word_ids.append(ID_EOS)
-			target_dataset.append(word_ids)
+	def add_file(filename, vocab, dataset):
+		if filename is None:
+			return
+		with codecs.open(filename, "r", "utf-8") as f:
+			for sentence in f:
+				sentence = sentence.strip()
+				if len(sentence) == 0:
+					continue
+				word_ids = []
+				words = sentence.split(" ")
+				for word in words:
+					if word not in vocab:
+						vocab[word] = len(vocab)
+					word_id = vocab[word]
+					word_ids.append(word_id)
+				if reverse_source:
+					word_ids.reverse()
+				dataset.append(word_ids)
+
+	add_file(source_filename_train, vocab_source, source_dataset_train)
+	add_file(source_filename_dev, vocab_source, source_dataset_dev)
+	add_file(source_filename_test, vocab_source, source_dataset_test)
+
+	add_file(target_filename_train, vocab_target, target_dataset_train)
+	add_file(target_filename_dev, vocab_target, target_dataset_dev)
+	add_file(target_filename_test, vocab_target, target_dataset_test)
 
 	vocab_inv_source = {}
 	for word, word_id in vocab_source.items():
@@ -62,33 +55,8 @@ def read_data(source_filename, target_filename, train_split_ratio=0.9, dev_split
 	vocab_inv_target = {}
 	for word, word_id in vocab_target.items():
 		vocab_inv_target[word_id] = word
-
-	assert len(target_dataset) == len(source_dataset)
-
-	random.seed(seed)
-	random.shuffle(source_dataset)
-	random.seed(seed)
-	random.shuffle(target_dataset)
-
-	# [train][validation] | [test]
-	train_split = int(len(source_dataset) * (train_split_ratio + dev_split_ratio))
-	source_train_dev = source_dataset[:train_split]
-	target_train_dev = target_dataset[:train_split]
-	source_test = source_dataset[train_split:]
-	target_test = target_dataset[train_split:]
-
-	# [train] | [validation]
-	dev_split = int(len(source_train_dev) * dev_split_ratio / (train_split_ratio + dev_split_ratio))
-	source_dev = source_train_dev[:dev_split]
-	target_dev = target_train_dev[:dev_split]
-	source_train = source_train_dev[dev_split:]
-	target_train = target_train_dev[dev_split:]
-
-	assert len(source_train) == len(target_train)
-	assert len(source_dev) == len(target_dev)
-	assert len(source_test) == len(target_test)
-
-	return (source_train, source_dev, source_test), (target_train, target_dev, target_test), (vocab_source, vocab_target), (vocab_inv_source, vocab_inv_target)
+		
+	return (source_dataset_train, source_dataset_dev, source_dataset_test), (target_dataset_train, target_dataset_dev, target_dataset_test), (vocab_source, vocab_target), (vocab_inv_source, vocab_inv_target)
 
 # input:
 # [34, 1093, 22504, 16399]

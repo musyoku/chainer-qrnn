@@ -21,15 +21,17 @@ from translate import dump_random_source_target_translation
 
 def main(args):
 	# load textfile
-	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
+	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_train, args.target_train, args.source_dev, args.target_dev, reverse_source=True)
 	save_vocab(args.model_dir, vocab, vocab_inv)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
 	print_bold("data	#")
 	print("train	{}".format(len(source_dataset_train)))
-	print("dev	{}".format(len(source_dataset_dev)))
-	print("test	{}".format(len(source_dataset_test)))
+	if len(source_dataset_dev) > 0:
+		print("dev	{}".format(len(source_dataset_dev)))
+	if len(source_dataset_test) > 0:
+		print("test	{}".format(len(source_dataset_test)))
 
 	vocab_source, vocab_target = vocab
 	vocab_inv_source, vocab_inv_target = vocab_inv
@@ -46,21 +48,23 @@ def main(args):
 	for size, data in zip(bucket_sizes, source_buckets_train):
 		print("{} 	{}".format(size, len(data)))
 
-	print_bold("buckets 	#data	(dev)")
-	source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
-	if args.buckets_slice is not None:
-		source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
-		target_buckets_dev = target_buckets_dev[:args.buckets_slice + 1]
-	for size, data in zip(bucket_sizes, source_buckets_dev):
-		print("{} 	{}".format(size, len(data)))
+	if len(source_dataset_dev) > 0:
+		print_bold("buckets 	#data	(dev)")
+		source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
+		if args.buckets_slice is not None:
+			source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
+			target_buckets_dev = target_buckets_dev[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_dev):
+			print("{} 	{}".format(size, len(data)))
 
-	print_bold("buckets		#data	(test)")
-	source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
-	if args.buckets_slice is not None:
-		source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
-		target_buckets_test = target_buckets_test[:args.buckets_slice + 1]
-	for size, data in zip(bucket_sizes, source_buckets_test):
-		print("{} 	{}".format(size, len(data)))
+	if len(source_dataset_test) > 0:
+		print_bold("buckets		#data	(test)")
+		source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
+		if args.buckets_slice is not None:
+			source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
+			target_buckets_test = target_buckets_test[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_test):
+			print("{} 	{}".format(size, len(data)))
 
 	# to maintain equilibrium
 	min_num_data = 0
@@ -92,7 +96,7 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 	final_learning_rate = 1e-5
-	prev_wer = None
+	decay_factor = 0.95
 	total_time = 0
 
 	def mean(l):
@@ -105,7 +109,7 @@ def main(args):
 
 		with chainer.using_config("train", True):
 			for itr in xrange(1, num_iteration + 1):
-				for repeat, source_bucket, target_bucket in zip(repeats, source_buckets_train, target_buckets_train):
+				for bucket_index, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
 					for r in xrange(repeat):
 						# sample minibatch
 						source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
@@ -130,14 +134,14 @@ def main(args):
 						loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 						optimizer.update(lossfun=lambda: loss)
 
-					sys.stdout.write("\r{} / {}".format(itr, num_iteration))
+					sys.stdout.write("\riteration {}/{} bucket {}/{}".format(itr, num_iteration, bucket_index + 1, len(source_buckets_train)))
 					sys.stdout.flush()
 
 		# show log
-		sys.stdout.write("\r" + stdout.CLEAR)
-		sys.stdout.flush()
-
 		with chainer.using_config("train", False):
+			sys.stdout.write("\r" + stdout.CLEAR)
+			sys.stdout.flush()
+
 			print_bold("translate (train)")
 			dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
@@ -152,38 +156,39 @@ def main(args):
 			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
 			print(mean(wer_dev), wer_dev)
 
-		elapsed_time = (time.time() - start_time) / 60.
-		total_time += elapsed_time
-		print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
+			elapsed_time = (time.time() - start_time) / 60.
+			total_time += elapsed_time
+			print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
 
 		# decay learning rate
 		if optimizer.alpha > final_learning_rate:
-			optimizer.alpha *= 0.95
+			optimizer.alpha *= decay_factor
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--batchsize", "-b", type=int, default=50)
+	parser.add_argument("--source-train", type=str, default=None)
+	parser.add_argument("--source-dev", type=str, default=None)
+	parser.add_argument("--target-train", type=str, default=None)
+	parser.add_argument("--target-dev", type=str, default=None)
+
+	parser.add_argument("--batchsize", "-b", type=int, default=64)
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
+
 	parser.add_argument("--ndim-h", "-nh", type=int, default=320)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=4)
-	parser.add_argument("--interval", type=int, default=100)
-	parser.add_argument("--seed", type=int, default=0)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=0.01)
-	parser.add_argument("--train-split", type=float, default=0.9)
-	parser.add_argument("--dev-split", type=float, default=0.05)
-	parser.add_argument("--source-filename", "-source", default=None)
-	parser.add_argument("--target-filename", "-target", default=None)
-	parser.add_argument("--buckets-slice", type=int, default=None)
-	parser.add_argument("--model-dir", "-m", type=str, default="model")
-	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
 	parser.add_argument("--attention", "-attention", default=False, action="store_true")
+	
+	parser.add_argument("--buckets-slice", type=int, default=None)
+	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	args = parser.parse_args()
 	main(args)

@@ -424,9 +424,11 @@ def main(args):
 	print_bold("WER (train)")
 	wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_train)
+
 	print_bold("WER (dev)")
 	wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_dev)
+	
 	print_bold("WER (test)")
 	wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), beam_width, normalization_alpha)
 	print(wer_test)
