@@ -221,7 +221,7 @@ def softmax_cross_entropy(x, t, use_cudnn=True, normalize=True, cache_score=True
 	return SoftmaxCrossEntropy(use_cudnn, normalize, cache_score, class_weight, ignore_label, reduce)(x, t)
 
 # https://github.com/zszyellow/WER-in-python
-def wer(r, h):
+def compute_error_rate_target_prediction(r, h):
 	# build the matrix
 	d = np.zeros((len(r) + 1) * (len(h) + 1), dtype=np.uint8).reshape((len(r) + 1, len(h) + 1))
 	for i in xrange(len(r) + 1):
@@ -239,7 +239,7 @@ def wer(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def compute_error_rate_batch(model, source_batch, target_batch, target_vocab_size, beam_width=8):
+def compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size, beam_width=8):
 	xp = model.xp
 	num_calculation = 0
 	sum_wer = 0
@@ -269,13 +269,13 @@ def compute_error_rate_batch(model, source_batch, target_batch, target_vocab_siz
 				continue
 			predict_tokens.append(token)
 
-		wer = wer(target_tokens, predict_tokens)
+		wer = compute_error_rate_target_prediction(target_tokens, predict_tokens)
 		sum_wer += wer
 		num_calculation += 1
 
 	return sum_wer / num_calculation
 
-def compute_error_rate_sequence(model, source, target, target_vocab_size, beam_width=8, normalization_alpha=0):
+def compute_error_rate_source_sequence(model, source, target, target_vocab_size, beam_width=8, normalization_alpha=0):
 	xp = model.xp
 	x = translate_beam_search(model, source, target.size * 2, target_vocab_size, beam_width, normalization_alpha)
 
@@ -301,7 +301,7 @@ def compute_error_rate_sequence(model, source, target, target_vocab_size, beam_w
 			continue
 		predict_tokens.append(token)
 
-	return wer(target_tokens, predict_tokens)
+	return compute_error_rate_target_prediction(target_tokens, predict_tokens)
 
 def compute_error_rate_buckets(model, source_buckets, target_buckets, target_vocab_size, beam_width=8, normalization_alpha=0):
 	result = []
@@ -325,7 +325,7 @@ def compute_error_rate_buckets(model, source_buckets, target_buckets, target_voc
 			for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
 				sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
 				sys.stdout.flush()
-				mean_wer = compute_error_rate_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
+				mean_wer = compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
 				sum_wer += mean_wer
 			result.append(sum_wer / len(source_sections) * 100)
 
@@ -335,7 +335,7 @@ def compute_error_rate_buckets(model, source_buckets, target_buckets, target_voc
 				sys.stdout.flush()
 				source = source_bucket[index]
 				target = target_bucket[index]
-				wer = compute_error_rate_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
+				wer = compute_error_rate_source_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
 				sum_wer += wer
 			result.append(sum_wer / len(source_bucket) * 100)
 		
@@ -351,7 +351,7 @@ def compute_random_error_rate_buckets(model, source_buckets, target_buckets, tar
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, sample_size)
 		
 		if beam_width == 1:	# greedy
-			mean_wer = compute_error_rate_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
+			mean_wer = compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
 
 		else:	# beam search
 			sum_wer = 0
@@ -360,7 +360,7 @@ def compute_random_error_rate_buckets(model, source_buckets, target_buckets, tar
 				sys.stdout.flush()
 				source = source_batch[index]
 				target = target_batch[index]
-				wer = compute_error_rate_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
+				wer = compute_error_rate_source_sequence(model, source, target, target_vocab_size, beam_width, normalization_alpha)
 				sum_wer += wer
 			mean_wer = sum_wer / len(source_batch)
 
