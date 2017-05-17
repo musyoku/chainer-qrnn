@@ -226,7 +226,7 @@ def compute_accuracy_batch(model, batch):
 		source = cuda.to_gpu(source)
 		target = cuda.to_gpu(target)
 	model.reset_state()
-	Y = model(source, test=True)
+	Y = model(source)
 	return float(F.accuracy(Y, target, ignore_label=ID_PAD).data)
 
 def compute_accuracy(model, buckets, batchsize=100):
@@ -269,7 +269,7 @@ def compute_perplexity_batch(model, batch):
 		source = cuda.to_gpu(source)
 		target = cuda.to_gpu(target)
 	model.reset_state()
-	Y = model(source, test=True)
+	Y = model(source)
 	neglogp = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 	return  math.exp(float(neglogp.data))
 

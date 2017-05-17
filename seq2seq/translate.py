@@ -11,27 +11,7 @@ from chainer.training import extensions
 sys.path.append(os.path.split(os.getcwd())[0])
 from model import load_model, load_vocab, Seq2SeqModel, AttentiveSeq2SeqModel
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
-from dataset import sample_batch_from_bucket
-
-def read_data(source_filename, vocab_source, reverse=True):
-	source_dataset = []
-	with codecs.open(source_filename, "r", "utf-8") as f:
-		new_word_id = ID_UNK + 1
-		for sentence in f:
-			sentence = sentence.strip()
-			if len(sentence) == 0:
-				continue
-			word_ids = []
-			words = sentence.split(" ")
-			for word in words:
-				assert(word in vocab_source)
-				word_id = vocab_source[word]
-				word_ids.append(word_id)
-			if reverse:
-				word_ids.reverse()
-			source_dataset.append(word_ids)
-
-	return source_dataset
+from dataset import sample_batch_from_bucket, read_data
 
 def make_buckets(dataset):
 	buckets_list = [[] for _ in xrange(len(bucket_sizes))]
@@ -125,7 +105,7 @@ def make_buckets(dataset):
 # 	return top_k
 
 
-def translate_greedy(model, source_batch, max_predict_length, vocab_size, beam_width=8, source_reversed=True):
+def translate_greedy(model, source_batch, max_predict_length, vocab_size, source_reversed=True):
 	xp = model.xp
 	skip_mask = source_batch != ID_PAD
 	batchsize = source_batch.shape[0]
@@ -172,7 +152,7 @@ def translate_greedy(model, source_batch, max_predict_length, vocab_size, beam_w
 	return x
 
 # http://opennmt.net/OpenNMT/translation/beam_search/
-def translate_beam_search(model, source, max_predict_length, vocab_size, beam_width=8, normalization_alpha=0, source_reversed=True):
+def translate_beam_search(model, source, max_predict_length, vocab_size, beam_width=8, normalization_alpha=0, source_reversed=True, return_all_candidates=False):
 	xp = model.xp
 	if source.ndim == 1:
 		source = xp.reshape(source, (1, -1))
@@ -308,6 +288,12 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 		penalty = math.pow(5 + length, normalization_alpha) / math.pow(5 + 1, normalization_alpha)
 		score = log_p / penalty
 		scores[i] = score
+
+	if return_all_candidates == True:
+		indices = np.flip(np.argsort(scores))
+		print(scores)
+		print(indices)
+
 	best_index = np.argmax(scores)
 	result = []
 	for token in (candidates[best_index]):
@@ -489,7 +475,7 @@ def dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_t
 		else:	# beam search
 			for index in xrange(len(source_bucket)):
 				source = source_bucket[index]
-				translation = translate_beam_search(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha)
+				translation = translate_beam_search(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha, return_all_candidates=True)
 				dump_translation(vocab_inv_source, vocab_inv_target, source, translation)
 
 def dump_random_source_target_translation(model, source_buckets, target_buckets, vocab_inv_source, vocab_inv_target, num_translate=3, beam_width=8):
@@ -513,25 +499,49 @@ def dump_random_source_target_translation(model, source_buckets, target_buckets,
 				dump_translation(vocab_inv_source, vocab_inv_target, source, translation_batch, target)
 
 def main(args):
-	# load vocab
+	source_dataset, target_dataset, _, _ = read_data(args.source_train, None, args.source_dev, None, args.source_test, None, reverse_source=True)
 	vocab, vocab_inv = load_vocab(args.model_dir)
+
+	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
+	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
+	print_bold("data	#")
+	if len(source_dataset_train) > 0:
+		print("train	{}".format(len(source_dataset_train)))
+	if len(source_dataset_dev) > 0:
+		print("dev	{}".format(len(source_dataset_dev)))
+	if len(source_dataset_test) > 0:
+		print("test	{}".format(len(source_dataset_test)))
+
 	vocab_source, vocab_target = vocab
 	vocab_inv_source, vocab_inv_target = vocab_inv
 
-	# load textfile
-	source_dataset = read_data(args.source_filename, vocab_source)
-
-	print_bold("data	#")
-	print("source	{}".format(len(source_dataset)))
-
 	# split into buckets
-	source_buckets = make_buckets(source_dataset)
-	if args.buckets_limit is not None:
-		source_buckets = source_buckets[:args.buckets_limit+1]
-	print_bold("buckets 	#data	(train)")
-	for size, data in zip(bucket_sizes, source_buckets):
-		print("{} 	{}".format(size, len(data)))
-	print_bold("buckets 	#data	(dev)")
+	source_buckets_train = None
+	if len(source_dataset_train) > 0:
+		print_bold("buckets 	#data	(train)")
+		source_buckets_train = make_buckets(source_dataset_train)
+		if args.buckets_slice is not None:
+			source_buckets_train = source_buckets_train[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_train):
+			print("{} 	{}".format(size, len(data)))
+
+	source_buckets_dev = None
+	if len(source_dataset_dev) > 0:
+		print_bold("buckets 	#data	(dev)")
+		source_buckets_dev = make_buckets(source_dataset_dev)
+		if args.buckets_slice is not None:
+			source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_dev):
+			print("{} 	{}".format(size, len(data)))
+
+	source_buckets_test = None
+	if len(source_dataset_test) > 0:
+		print_bold("buckets		#data	(test)")
+		source_buckets_test = make_buckets(source_dataset_test)
+		if args.buckets_slice is not None:
+			source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_test):
+			print("{} 	{}".format(size, len(data)))
 
 	# init
 	model = load_model(args.model_dir)
@@ -540,13 +550,22 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
-	dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_target, beam_width=8, normalization_alpha=0)
+	if source_buckets_train is not None:
+		dump_source_translation(model, source_buckets_train, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=0)
+
+	if source_buckets_dev is not None:
+		dump_source_translation(model, source_buckets_dev, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=0)
+
+	if source_buckets_test is not None:
+		dump_source_translation(model, source_buckets_test, vocab_inv_source, vocab_inv_target, beam_width=args.beam_width, normalization_alpha=0)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
+	parser.add_argument("--source-train", type=str, default=None)
+	parser.add_argument("--source-dev", type=str, default=None)
+	parser.add_argument("--source-test", type=str, default=None)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-	parser.add_argument("--source-filename", "-source", default=None)
-	parser.add_argument("--buckets-limit", type=int, default=None)
+	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--beam-width", "-beam", type=int, default=8)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	args = parser.parse_args()

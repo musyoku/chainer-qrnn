@@ -6,9 +6,9 @@ import chainer
 from chainer import cuda, functions
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
-from model import Seq2SeqModel, AttentiveSeq2SeqModel, load_model
+from model import load_model, load_vocab
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
-from dataset import read_data, make_buckets, make_source_target_pair, sample_batch_from_bucket
+from dataset import read_data, make_buckets, sample_batch_from_bucket
 from translate import translate_beam_search, translate_greedy
 
 def _broadcast_to(array, shape):
@@ -239,12 +239,11 @@ def compute_error_rate_target_prediction(r, h):
 				d[i][j] = min(substitute, insert, delete)
 	return float(d[len(r)][len(h)]) / len(r)
 
-def compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size, beam_width=8):
+def compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size):
 	xp = model.xp
-	num_calculation = 0
 	sum_wer = 0
 	batchsize = source_batch.shape[0]
-	x = translate_greedy(model, source_batch, target_batch.shape[1] * 2, target_vocab_size, beam_width)
+	x = translate_greedy(model, source_batch, target_batch.shape[1] * 2, target_vocab_size)
 
 	for n in xrange(batchsize):
 		target_tokens = []
@@ -271,9 +270,8 @@ def compute_error_rate_source_batch(model, source_batch, target_batch, target_vo
 
 		wer = compute_error_rate_target_prediction(target_tokens, predict_tokens)
 		sum_wer += wer
-		num_calculation += 1
 
-	return sum_wer / num_calculation
+	return sum_wer / batchsize
 
 def compute_error_rate_source_sequence(model, source, target, target_vocab_size, beam_width=8, normalization_alpha=0):
 	xp = model.xp
@@ -325,7 +323,7 @@ def compute_error_rate_buckets(model, source_buckets, target_buckets, target_voc
 			for batch_index, (source_batch, target_batch) in enumerate(zip(source_sections, target_sections)):
 				sys.stdout.write("\rcomputing WER ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(source_buckets), batch_index + 1, len(source_sections)))
 				sys.stdout.flush()
-				mean_wer = compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
+				mean_wer = compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size)
 				sum_wer += mean_wer
 			result.append(sum_wer / len(source_sections) * 100)
 
@@ -351,7 +349,7 @@ def compute_random_error_rate_buckets(model, source_buckets, target_buckets, tar
 		source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, sample_size)
 		
 		if beam_width == 1:	# greedy
-			mean_wer = compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size, beam_width)
+			mean_wer = compute_error_rate_source_batch(model, source_batch, target_batch, target_vocab_size)
 
 		else:	# beam search
 			sum_wer = 0
@@ -373,14 +371,19 @@ def compute_random_error_rate_buckets(model, source_buckets, target_buckets, tar
 
 def main(args):
 	# load textfile
-	source_dataset, target_dataset, vocab, vocab_inv = read_data(args.source_filename, args.target_filename, train_split_ratio=args.train_split, dev_split_ratio=args.dev_split, seed=args.seed)
+	source_dataset, target_dataset, _, _ = read_data(args.source_train, args.target_train, args.source_dev, args.target_dev, args.source_test, args.target_test, reverse_source=True)
+	vocab, vocab_inv = load_vocab(args.model_dir)
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
 	print_bold("data	#")
-	print("train	{}".format(len(source_dataset_train)))
-	print("dev	{}".format(len(source_dataset_dev)))
-	print("test	{}".format(len(source_dataset_test)))
+	if len(source_dataset_train) > 0:
+		print("train	{}".format(len(source_dataset_train)))
+	if len(source_dataset_dev) > 0:
+		print("dev	{}".format(len(source_dataset_dev)))
+	if len(source_dataset_test) > 0:
+		print("test	{}".format(len(source_dataset_test)))
+
 
 	vocab_source, vocab_target = vocab
 	vocab_inv_source, vocab_inv_target = vocab_inv
@@ -388,29 +391,36 @@ def main(args):
 	print("vocab	{}	(target)".format(len(vocab_target)))
 
 	# split into buckets
-	source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
-	if args.buckets_limit is not None:
-		source_buckets_train = source_buckets_train[:args.buckets_limit+1]
-		target_buckets_train = target_buckets_train[:args.buckets_limit+1]
-	print_bold("buckets 	#data	(train)")
-	for size, data in zip(bucket_sizes, source_buckets_train):
-		print("{} 	{}".format(size, len(data)))
-	print_bold("buckets 	#data	(dev)")
+	source_buckets_train = None
+	if len(source_dataset_train) > 0:
+		print_bold("buckets 	#data	(train)")
+		source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
+		if args.buckets_slice is not None:
+			source_buckets_train = source_buckets_train[:args.buckets_slice + 1]
+			target_buckets_train = target_buckets_train[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_train):
+			print("{} 	{}".format(size, len(data)))
 
-	source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
-	if args.buckets_limit is not None:
-		source_buckets_dev = source_buckets_dev[:args.buckets_limit+1]
-		target_buckets_dev = target_buckets_dev[:args.buckets_limit+1]
-	for size, data in zip(bucket_sizes, source_buckets_dev):
-		print("{} 	{}".format(size, len(data)))
-	print_bold("buckets		#data	(test)")
+	source_buckets_dev = None
+	if len(source_dataset_dev) > 0:
+		print_bold("buckets 	#data	(dev)")
+		source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
+		if args.buckets_slice is not None:
+			source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
+			target_buckets_dev = target_buckets_dev[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_dev):
+			print("{} 	{}".format(size, len(data)))
 
-	source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
-	if args.buckets_limit is not None:
-		source_buckets_test = source_buckets_test[:args.buckets_limit+1]
-		target_buckets_test = target_buckets_test[:args.buckets_limit+1]
-	for size, data in zip(bucket_sizes, source_buckets_test):
-		print("{} 	{}".format(size, len(data)))
+	source_buckets_test = None
+	if len(source_dataset_test) > 0:
+		print_bold("buckets		#data	(test)")
+		source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
+		if args.buckets_slice is not None:
+			source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
+			target_buckets_test = target_buckets_test[:args.buckets_slice + 1]
+		for size, data in zip(bucket_sizes, source_buckets_test):
+			print("{} 	{}".format(size, len(data)))
+
 
 	model = load_model(args.model_dir)
 	assert model is not None
@@ -421,28 +431,32 @@ def main(args):
 	beam_width = 8
 	normalization_alpha = 0.
 
-	print_bold("WER (train)")
-	wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width, normalization_alpha)
-	print(wer_train)
+	with chainer.using_config("train", False):
+		if source_buckets_train is not None:
+			print_bold("WER (train)")
+			wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_target), beam_width, normalization_alpha)
+			print(wer_train)
 
-	print_bold("WER (dev)")
-	wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width, normalization_alpha)
-	print(wer_dev)
-	
-	print_bold("WER (test)")
-	wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_inv_target), beam_width, normalization_alpha)
-	print(wer_test)
+		if source_buckets_dev is not None:
+			print_bold("WER (dev)")
+			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_target), beam_width, normalization_alpha)
+			print(wer_dev)
+
+		if source_buckets_test is not None:
+			print_bold("WER (test)")
+			wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_target), beam_width, normalization_alpha)
+			print(wer_test)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--batchsize", "-b", type=int, default=50)
+	parser.add_argument("--source-train", type=str, default=None)
+	parser.add_argument("--source-dev", type=str, default=None)
+	parser.add_argument("--source-test", type=str, default=None)
+	parser.add_argument("--target-train", type=str, default=None)
+	parser.add_argument("--target-dev", type=str, default=None)
+	parser.add_argument("--target-test", type=str, default=None)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-	parser.add_argument("--train-split", type=float, default=0.9)
-	parser.add_argument("--dev-split", type=float, default=0.05)
-	parser.add_argument("--source-filename", "-source", default=None)
-	parser.add_argument("--target-filename", "-target", default=None)
-	parser.add_argument("--buckets-limit", type=int, default=None)
+	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
-	parser.add_argument("--seed", type=int, default=0)
 	args = parser.parse_args()
 	main(args)

@@ -48,6 +48,7 @@ def main(args):
 	for size, data in zip(bucket_sizes, source_buckets_train):
 		print("{} 	{}".format(size, len(data)))
 
+	source_buckets_dev = None
 	if len(source_dataset_dev) > 0:
 		print_bold("buckets 	#data	(dev)")
 		source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
@@ -57,6 +58,7 @@ def main(args):
 		for size, data in zip(bucket_sizes, source_buckets_dev):
 			print("{} 	{}".format(size, len(data)))
 
+	source_buckets_test = None
 	if len(source_dataset_test) > 0:
 		print_bold("buckets		#data	(test)")
 		source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
@@ -137,24 +139,30 @@ def main(args):
 					sys.stdout.write("\riteration {}/{} bucket {}/{}".format(itr, num_iteration, bucket_index + 1, len(source_buckets_train)))
 					sys.stdout.flush()
 
+		# serialize
+		save_model(args.model_dir, model)
+
 		# show log
 		with chainer.using_config("train", False):
 			sys.stdout.write("\r" + stdout.CLEAR)
 			sys.stdout.flush()
 
-			print_bold("translate (train)")
-			dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
+			# print_bold("translate (train)")
+			# dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
-			print_bold("translate (dev)")
-			dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
+			# if source_dataset_dev is not None:
+			# 	print_bold("translate (dev)")
+			# 	dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
-			print_bold("WER (sampled train)")
-			wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
-			print(mean(wer_train), wer_train)
+			# print_bold("WER (train)")
+			# wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
+			# print(mean(wer_train), wer_train)
 
-			print_bold("WER (dev)")
-			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
-			print(mean(wer_dev), wer_dev)
+			if epoch % 10 == 0:
+				if source_dataset_dev is not None:
+					print_bold("WER (train)")
+					wer_dev = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
+					print(mean(wer_dev), wer_dev)
 
 			elapsed_time = (time.time() - start_time) / 60.
 			total_time += elapsed_time
