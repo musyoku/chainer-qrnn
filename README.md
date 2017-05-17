@@ -23,7 +23,7 @@ spm_train  --input japanese.txt --model_prefix japanese --vocab_size 16000
 spm_encode --model english.model --output_format=piece < train.en > train.en.txt
 spm_encode --model english.model --output_format=piece < dev.en > dev.en.txt
 spm_encode --model english.model --output_format=piece < test.en > test.en.txt
-spm_encode --model english.model --output_format=piece < train.ja > train.ja.txt
-spm_encode --model english.model --output_format=piece < dev.ja > dev.ja.txt
-spm_encode --model english.model --output_format=piece < test.ja > test.ja.txt
+spm_encode --model japanese.model --output_format=piece < train.ja > train.ja.txt
+spm_encode --model japanese.model --output_format=piece < dev.ja > dev.ja.txt
+spm_encode --model japanese.model --output_format=piece < test.ja > test.ja.txt
 ```
