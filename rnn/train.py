@@ -74,7 +74,7 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 	final_learning_rate = 1e-4
-	decay_factor = 0.85
+	decay_factor = 0.95
 	total_time = 0
 
 	def mean(l):
@@ -87,10 +87,7 @@ def main(args):
 
 		with chainer.using_config("train", True):
 			for itr in xrange(1, num_iteration + 1):
-				sys.stdout.write("\r{} / {}".format(itr, num_iteration))
-				sys.stdout.flush()
-
-				for repeat, dataset in zip(repeats, train_buckets):
+				for bucket_index, (repeat, dataset) in enumerate(zip(repeats, train_buckets)):
 					for r in xrange(repeat):
 						batch = sample_batch_from_bucket(dataset, args.batchsize)
 						source, target = make_source_target_pair(batch)
@@ -102,6 +99,9 @@ def main(args):
 						loss = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
 						optimizer.update(lossfun=lambda: loss)
 
+					sys.stdout.write("\riteration {}/{} bucket {}/{}".format(itr, num_iteration, bucket_index + 1, len(train_buckets)))
+					sys.stdout.flush()
+
 		# serialize
 		save_model(args.model_dir, model)
 
@@ -110,7 +110,7 @@ def main(args):
 		sys.stdout.flush()
 
 		with chainer.using_config("train", False):
-			print_bold("	accuracy (sampled train)")
+			print_bold("	accuracy (train)")
 			acc_train = compute_random_accuracy(model, train_buckets, args.batchsize)
 			print("	", mean(acc_train), acc_train)
 
@@ -119,7 +119,7 @@ def main(args):
 				acc_dev = compute_accuracy(model, dev_buckets, args.batchsize)
 				print("	", mean(acc_dev), acc_dev)
 
-			print_bold("	ppl (sampled train)")
+			print_bold("	ppl (train)")
 			ppl_train = compute_random_perplexity(model, train_buckets, args.batchsize)
 			print("	", mean(ppl_train), ppl_train)
 

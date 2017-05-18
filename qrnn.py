@@ -32,9 +32,9 @@ def zoneout(x, ratio=.5):
 	return Zoneout(ratio)(x)
 
 class QRNN(link.Chain):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1.):
 		self.num_split = len(pooling) + 1
-		wstd = kernel_size * out_channels * wgain
+		wstd = math.sqrt(wgain / in_channels / kernel_size)
 		super(QRNN, self).__init__(W=links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.Normal(wstd)))
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
@@ -142,10 +142,10 @@ class QRNNEncoder(QRNN):
 	pass
 
 class QRNNDecoder(QRNN):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1.):
 		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio, wgain=wgain)
 		self.num_split = len(pooling) + 1
-		wstd = math.sqrt(1. / out_channels / self.num_split)
+		wstd = math.sqrt(wgain / in_channels / kernel_size)
 		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
 
 	# ht_enc is the last encoder state
@@ -195,9 +195,9 @@ class QRNNDecoder(QRNN):
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):
-	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wgain=1):
+	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wgain=1.):
 		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio, wgain=wgain)
-		wstd = math.sqrt(1. / out_channels / 2.)
+		wstd = math.sqrt(wgain / in_channels / kernel_size)
 		self.add_link('o', links.Linear(2 * out_channels, out_channels, initialW=initializers.Normal(wstd)))
 
 	# X is the input of the decoder
