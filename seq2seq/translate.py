@@ -59,15 +59,15 @@ def translate_greedy(model, source_batch, max_predict_length, vocab_size, source
 
 	# get encoder's last hidden states
 	if isinstance(model, AttentiveSeq2SeqModel):
-		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask, test=True)
+		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source_batch, skip_mask)
 	else:
-		encoder_last_hidden_states = model.encode(source_batch, skip_mask, test=True)
+		encoder_last_hidden_states = model.encode(source_batch, skip_mask)
 
 	while x.shape[1] < max_predict_length:
 		if isinstance(model, AttentiveSeq2SeqModel):
-			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True)
+			u = model.decode_one_step(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask)
 		else:
-			u = model.decode_one_step(x, encoder_last_hidden_states, test=True)
+			u = model.decode_one_step(x, encoder_last_hidden_states)
 		p = F.softmax(u)	# convert to probability
 
 		# concatenate
@@ -106,9 +106,9 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 
 	# get encoder's last hidden states
 	if isinstance(model, AttentiveSeq2SeqModel):
-		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source, skip_mask, test=True)
+		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source, skip_mask)
 	else:
-		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source, skip_mask, test=True), None
+		encoder_last_hidden_states, encoder_last_layer_outputs = model.encode(source, skip_mask), None
 
 	# copy beam_width times
 	for i, state in enumerate(encoder_last_hidden_states):
@@ -137,9 +137,9 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 	for t in xrange(max_predict_length):
 		model.reset_decoder_state()
 		if isinstance(model, AttentiveSeq2SeqModel):
-			u_t = model.decode(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, test=True, return_last=True)
+			u_t = model.decode(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, return_last=True)
 		else:
-			u_t = model.decode(x, encoder_last_hidden_states, test=True, return_last=True)
+			u_t = model.decode(x, encoder_last_hidden_states, return_last=True)
 		p_t = F.softmax(u_t)	# convert to probability
 		log_p_t = F.log(p_t).data
 
