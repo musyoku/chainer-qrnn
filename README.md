@@ -6,11 +6,49 @@ todo:
 - [x] ifo-pooling
 - [x] zoneout
 - [x] encoder-decoder
-- [ ] seq2seq
-- [ ] seq2seq with attention
-- [ ] experiments
+- [x] seq2seq
+- [x] seq2seq with attention
+- [x] experiments
+
+# QUASI-RECURRENT NEURAL NETWORKS
+
+- code for the [paper](https://arxiv.org/abs/1611.01576v1)
+
+## Requirements
+
+- Chainer 2.0.0+
+- Python 2/3
+
+## language Modeling
+
+### Dataset
+
+[Penn Tree Bank](https://github.com/wojzaremba/lstm/tree/master/data)
+
+### Usage
+
+
+```
+python train.py -train data/train.txt -dev data/dev.txt -lr 0.1 -dense -zoneout -dropout -b 64 -wd 2e-5
+```
+
+```
+python error.py -dev data/dev.txt -test data/test.txt 
+```
+
+```
+python generate.py -n 10
+```
+
+## Neural Machine Translation
+
+### Dataset
 
 [京都フリー翻訳タスク (KFTT)](http://www.phontron.com/kftt/index-ja.html#dataonly)
+
+### Preprocessing
+
+We use [SentencePiece](https://github.com/google/sentencepiece) to tokenize text.
 
 ```
 cat dev.en train.en test.en > english.txt
@@ -26,4 +64,18 @@ spm_encode --model english.model --output_format=piece < test.en > test.en.txt
 spm_encode --model japanese.model --output_format=piece < train.ja > train.ja.txt
 spm_encode --model japanese.model --output_format=piece < dev.ja > dev.ja.txt
 spm_encode --model japanese.model --output_format=piece < test.ja > test.ja.txt
+```
+
+### Usage
+
+```
+python train.py --source-train data/train.ja.txt --target-train data/train.en.txt --source-dev data/dev.ja.txt --target-dev data/dev.en.txt --source-test data/test.ja.txt --target-test data/test.en.txt --batchsize 64 -zoneout -dense -attention -lr 0.1
+```
+
+```
+python error.py --source-test data/test.ja.txt --target-test data/test.en.txt -beam 8 -alpha 0.6
+```
+
+```
+python translate.py --source-test data/test.ja.txt  -beam 8 -alpha 0.6
 ```
