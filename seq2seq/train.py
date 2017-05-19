@@ -193,7 +193,7 @@ if __name__ == "__main__":
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
 	parser.add_argument("--num-layers", "-layers", type=int, default=4)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wgain", "-w", type=float, default=0.01)
+	parser.add_argument("--wgain", "-w", type=float, default=1)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")

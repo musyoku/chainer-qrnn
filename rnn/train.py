@@ -149,7 +149,7 @@ if __name__ == "__main__":
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
-	parser.add_argument("--wgain", "-w", type=float, default=0.01)
+	parser.add_argument("--wgain", "-w", type=float, default=1)
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
 	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
