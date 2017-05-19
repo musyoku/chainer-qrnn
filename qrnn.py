@@ -3,6 +3,7 @@ from __future__ import print_function
 from six.moves import xrange
 import math
 import numpy as np
+import chainer
 from chainer import cuda, Variable, function, link, functions, links, initializers
 from chainer.utils import type_check
 from chainer.links import EmbedID, Linear, BatchNormalization
@@ -39,8 +40,7 @@ class QRNN(link.Chain):
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
 
-	def __call__(self, X, skip_mask=None, test=False):
-		self._test = test
+	def __call__(self, X, skip_mask=None):
 		# remove right paddings
 		# e.g.
 		# kernel_size = 3
@@ -53,19 +53,15 @@ class QRNN(link.Chain):
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, :-pad]
 
-		if test:
-			WX.unchain_backward()
-
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
-	def forward_one_step(self, X, skip_mask=None, test=False):
-		self._test = test
+	def forward_one_step(self, X, skip_mask=None):
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, -pad-1, None]
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
 	def zoneout(self, U):
-		if self._zoneout and self._test == False:
+		if self._zoneout and chainer.config.train:
 			return 1 - zoneout(functions.sigmoid(-U), self._zoneout_ratio)
 		return functions.sigmoid(U)
 
@@ -119,9 +115,6 @@ class QRNN(link.Chain):
 			else:
 				self.H = functions.concat((self.H, functions.expand_dims(self.ht, 2)), axis=2)
 
-			if self._test:
-				self.H.unchain_backward()
-
 		return self.H
 
 	def reset_state(self):
@@ -149,8 +142,7 @@ class QRNNDecoder(QRNN):
 		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
 
 	# ht_enc is the last encoder state
-	def __call__(self, X, ht_enc, test=False):
-		self._test = test
+	def __call__(self, X, ht_enc):
 		pad = self._kernel_size - 1
 		WX = self.W(X)
 		if pad > 0:
@@ -174,23 +166,14 @@ class QRNNDecoder(QRNN):
 		# 		 [	13	13	13]
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
 
-		if test:
-			WX.unchain_backward()
-			Vh.unchain_backward()
-
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
-	def forward_one_step(self, X, ht_enc, test=False):
-		self._test = test
+	def forward_one_step(self, X, ht_enc):
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, -pad-1, None]
 		Vh = self.V(ht_enc)
 
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
-
-		if test:
-			WX.unchain_backward()
-			Vh.unchain_backward()
 
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
@@ -203,8 +186,7 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 	# X is the input of the decoder
 	# ht_enc is the last encoder state
 	# H_enc is the encoder's las layer's hidden sates
-	def __call__(self, X, ht_enc, H_enc, skip_mask=None, test=False):
-		self._test = test
+	def __call__(self, X, ht_enc, H_enc, skip_mask=None):
 		pad = self._kernel_size - 1
 		WX = self.W(X)
 		if pad > 0:
@@ -248,9 +230,6 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 			ot = O[:, :, t]
 			self.ht = ot * self.o(functions.concat((kt, ct), axis=1))
 
-			if test:
-				self.ht.unchain_backward()
-
 			if t == 0:
 				self.H = functions.expand_dims(self.ht, 2)
 			else:
@@ -258,17 +237,12 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 
 		return self.H
 
-	def forward_one_step(self, X, ht_enc, H_enc, skip_mask, test=False):
-		self._test = test
+	def forward_one_step(self, X, ht_enc, H_enc, skip_mask):
 		pad = self._kernel_size - 1
 		WX = self.W(X)[:, :, -pad-1, None]
 		Vh = self.V(ht_enc)
 
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
-
-		if test:
-			WX.unchain_backward()
-			Vh.unchain_backward()
 
 		# f-pooling
 		Z, F, O = functions.split_axis(WX + Vh, 3, axis=1)
@@ -304,9 +278,6 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 			kt = functions.sum(alpha * H_enc, axis=1)
 			ot = O[:, :, t]
 			self.ht = ot * self.o(functions.concat((kt, ct), axis=1))
-
-			if test:
-				self.ht.unchain_backward()
 
 			if self.H is None:
 				self.H = functions.expand_dims(self.ht, 2)
