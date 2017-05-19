@@ -5,7 +5,7 @@
 ## Requirements
 
 - Chainer 2.0+
-- Python 2/3
+- Python 2 or 3
 
 ## language Modeling
 
