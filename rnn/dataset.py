@@ -1,6 +1,7 @@
 # coding: utf-8
 import codecs, random
 import numpy as np
+from six.moves import xrange
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes
 
 def read_data(filename_train=None, filename_dev=None, filename_test=None):

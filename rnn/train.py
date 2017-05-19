@@ -8,8 +8,6 @@ import chainer
 import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
-sys.path.append(os.path.split(os.getcwd())[0])
-from eve import Eve
 from model import RNNModel, load_model, save_model, save_vocab
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
@@ -142,7 +140,7 @@ if __name__ == "__main__":
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=10) 
-	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
+	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-5) 
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)

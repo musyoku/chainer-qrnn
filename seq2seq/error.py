@@ -1,8 +1,11 @@
 # coding: utf-8
+from __future__ import division
+from __future__ import print_function
 import argparse, sys
 import numpy as np
 import chainer.functions as F
 import chainer
+from six.moves import xrange
 from chainer import cuda, functions
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
@@ -432,21 +435,24 @@ def main(args):
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
+	def mean(l):
+		return sum(l) / len(l)
+
 	with chainer.using_config("train", False):
 		if source_buckets_train is not None:
 			print_bold("WER (train)")
 			wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_target), args.beam_width, args.alpha)
-			print(wer_train)
+			print(mean(wer_train), wer_train)
 
 		if source_buckets_dev is not None:
 			print_bold("WER (dev)")
 			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_target), args.beam_width, args.alpha)
-			print(wer_dev)
+			print(mean(wer_dev), wer_dev)
 
 		if source_buckets_test is not None:
 			print_bold("WER (test)")
 			wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_target), args.beam_width, args.alpha)
-			print(wer_test)
+			print(mean(wer_test), wer_test)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

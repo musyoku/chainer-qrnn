@@ -1,5 +1,6 @@
 import sys, os, json, pickle
 import chainer.functions as F
+from six.moves import xrange
 from chainer import Chain, serializers
 sys.path.append(os.path.split(os.getcwd())[0])
 import qrnn as L

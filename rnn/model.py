@@ -1,5 +1,6 @@
 import sys, os, json, pickle
 import chainer.functions as F
+from six.moves import xrange
 from chainer import Chain, serializers
 sys.path.append(os.path.split(os.getcwd())[0])
 import qrnn as L
@@ -107,8 +108,8 @@ class RNNModel(Chain):
 		self.densely_connected = densely_connected
 
 		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
-		for i in xrange(num_layers - 1):
-			self.add_link("qrnn{}".format(i + 1), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		for i in xrange(1, num_layers):
+			self.add_link("qrnn{}".format(i), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
 
 	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))

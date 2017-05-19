@@ -1,8 +1,12 @@
 # coding: utf-8
-import math, sys, argparse, six
+from __future__ import division
+from __future__ import print_function
+import math, sys, argparse
 import numpy as np
 import chainer.functions as F
 import chainer
+from functools import reduce
+from six.moves import xrange
 from chainer import cuda, function
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
@@ -72,7 +76,7 @@ class SoftmaxCrossEntropy(function.Function):
 		if self.cache_score:
 			self.y = np.exp(log_y)
 		if self.class_weight is not None:
-			shape = [1 if d != 1 else -1 for d in six.moves.range(x.ndim)]
+			shape = [1 if d != 1 else -1 for d in xrange(x.ndim)]
 			log_y *= _broadcast_to(self.class_weight.reshape(shape), x.shape)
 		log_yd = np.rollaxis(log_y, 1)
 		log_yd = log_yd.reshape(len(log_yd), -1)
@@ -103,7 +107,7 @@ class SoftmaxCrossEntropy(function.Function):
 		if self.cache_score:
 			self.y = cupy.exp(log_y)
 		if self.class_weight is not None:
-			shape = [1 if d != 1 else -1 for d in six.moves.range(x.ndim)]
+			shape = [1 if d != 1 else -1 for d in xrange(x.ndim)]
 			log_y *= cupy.broadcast_to(
 				self.class_weight.reshape(shape), x.shape)
 		if self.normalize:
@@ -149,7 +153,7 @@ class SoftmaxCrossEntropy(function.Function):
 			gx = y
 			gx[np.arange(len(t)), np.maximum(t, 0)] -= 1
 			if self.class_weight is not None:
-				shape = [1 if d != 1 else -1 for d in six.moves.range(x.ndim)]
+				shape = [1 if d != 1 else -1 for d in xrange(x.ndim)]
 				c = _broadcast_to(self.class_weight.reshape(shape), x.shape)
 				c = c[np.arange(len(t)), np.maximum(t, 0)]
 				gx *= _broadcast_to(np.expand_dims(c, 1), gx.shape)
@@ -161,7 +165,7 @@ class SoftmaxCrossEntropy(function.Function):
 			trd_index = np.arange(t.size) % n_unit
 			gx[fst_index, np.maximum(t.ravel(), 0), trd_index] -= 1
 			if self.class_weight is not None:
-				shape = [1 if d != 1 else -1 for d in six.moves.range(x.ndim)]
+				shape = [1 if d != 1 else -1 for d in xrange(x.ndim)]
 				c = _broadcast_to(self.class_weight.reshape(shape), x.shape)
 				c = c.reshape(gx.shape)
 				c = c[fst_index, np.maximum(t.ravel(), 0), trd_index]
@@ -336,7 +340,7 @@ def main(args):
 			print("{}	{}".format(size, len(data)))
 
 	buckets_test = None
-	if len(dataset_dev) > 0:
+	if len(dataset_test) > 0:
 		print_bold("buckets	#data	(test)")
 		buckets_test = make_buckets(dataset_test)
 		if args.buckets_slice is not None:
@@ -379,8 +383,6 @@ if __name__ == "__main__":
 	parser.add_argument("--seed", type=int, default=0)
 	parser.add_argument("--batchsize", "-b", type=int, default=96)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-	parser.add_argument("--train-split", type=float, default=0.9)
-	parser.add_argument("--dev-split", type=float, default=0.05)
 	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--train-filename", "-train", default=None)
 	parser.add_argument("--dev-filename", "-dev", default=None)

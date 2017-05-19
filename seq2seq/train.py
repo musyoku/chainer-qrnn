@@ -8,10 +8,8 @@ import chainer
 import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
-sys.path.append(os.path.split(os.getcwd())[0])
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data_and_vocab, make_buckets, make_source_target_pair, sample_batch_from_bucket
-from eve import Eve
 from model import seq2seq, load_model, save_model, save_vocab
 from error import compute_error_rate_buckets, compute_random_error_rate_buckets, softmax_cross_entropy
 from translate import dump_random_source_target_translation
