@@ -1,22 +1,10 @@
-in progress ...
-
-todo:
-- [x] f-pooling
-- [x] fo-pooling
-- [x] ifo-pooling
-- [x] zoneout
-- [x] encoder-decoder
-- [x] seq2seq
-- [x] seq2seq with attention
-- [x] experiments
-
 # QUASI-RECURRENT NEURAL NETWORKS
 
 - code for the [paper](https://arxiv.org/abs/1611.01576v1)
 
 ## Requirements
 
-- Chainer 2.0.0+
+- Chainer 2.0+
 - Python 2/3
 
 ## language Modeling
