@@ -125,9 +125,12 @@ class RNNModel(Chain):
 		seq_length = X.shape[1]
 		enmbedding = self.embed(X)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
+		in_data = []
+		if self.ndim_embedding == self.ndim_h:
+			in_data.append(enmbedding)
 
 		out_data = self._forward_layer(0, enmbedding)
-		in_data = [out_data]
+		in_data.append(out_data)
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_layer(layer_index, sum(in_data) if self.densely_connected else in_data[-1])	# dense conv
 			in_data.append(out_data)
