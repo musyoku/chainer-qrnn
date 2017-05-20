@@ -167,7 +167,7 @@ class RNNModel(Chain):
 		xt = X[:, -ksize:]
 		enmbedding = self.embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
-		
+
 		in_data = []
 		if self.ndim_embedding == self.ndim_h:
 			in_data.append(enmbedding)
