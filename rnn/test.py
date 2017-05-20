@@ -17,7 +17,7 @@ def test_rnn():
 	vocab_size = 4
 	data = np.random.randint(0, vocab_size, size=(batchsize, seq_length), dtype=np.int32)
 	source, target = make_source_target_pair(data)
-	model = RNNModel(vocab_size, ndim_embedding=100, num_layers=num_layers, ndim_h=3, kernel_size=3, pooling="fo", zoneout=False, wgain=1)
+	model = RNNModel(vocab_size, ndim_embedding=100, num_layers=num_layers, ndim_h=3, kernel_size=3, pooling="fo", zoneout=False, wgain=1, densely_connected=True)
 
 	with chainer.using_config("train", False):
 		np.random.seed(0)

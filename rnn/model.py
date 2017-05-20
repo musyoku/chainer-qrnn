@@ -167,9 +167,13 @@ class RNNModel(Chain):
 		xt = X[:, -ksize:]
 		enmbedding = self.embed(xt)
 		enmbedding = F.swapaxes(enmbedding, 1, 2)
+		
+		in_data = []
+		if self.ndim_embedding == self.ndim_h:
+			in_data.append(enmbedding)
 
 		out_data = self._forward_layer_one_step(0, enmbedding)[:, :, -ksize:]
-		in_data = [out_data]
+		in_data.append(out_data)
 		
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_layer_one_step(layer_index, sum(in_data) if self.densely_connected else in_data[-1])[:, :, -ksize:]	# dense conv
