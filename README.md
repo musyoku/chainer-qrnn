@@ -15,6 +15,9 @@
 
 ### Usage
 
+```
+cd rnn
+```
 
 ```
 python train.py -train data/train.txt -dev data/dev.txt -lr 0.1 -dense -zoneout -dropout -b 64 -wd 2e-5
@@ -55,6 +58,10 @@ spm_encode --model japanese.model --output_format=piece < test.ja > test.ja.txt
 ```
 
 ### Usage
+
+```
+cd seq2seq
+```
 
 ```
 python train.py --source-train data/train.ja.txt --target-train data/train.en.txt --source-dev data/dev.ja.txt --target-dev data/dev.en.txt --source-test data/test.ja.txt --target-test data/test.en.txt --batchsize 64 -zoneout -dense -attention -lr 0.1
