@@ -76,7 +76,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		model = seq2seq(vocab_size_enc=params["vocab_size_enc"], vocab_size_dec=params["vocab_size_dec"], ndim_embedding=params["ndim_embedding"], num_layers=params["num_layers"], ndim_h=params["ndim_h"], pooling=params["pooling"], dropout=params["dropout"], zoneout=params["zoneout"], wgain=params["wgain"], densely_connected=params["densely_connected"], attention=params["attention"])
+		model = seq2seq(**params)
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))

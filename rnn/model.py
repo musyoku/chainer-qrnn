@@ -6,32 +6,25 @@ sys.path.append(os.path.split(os.getcwd())[0])
 import qrnn as L
 
 def save_vocab(dirname, vocab, vocab_inv):
-	vocab_filename = dirname + "/vocab.pickle"
-	inv_filename = dirname + "/inv.pickle"
+	filename = dirname + "/vocab.pickle"
 	
 	try:
 		os.mkdir(dirname)
 	except:
 		pass
 
-	with open(vocab_filename, mode="wb") as f:
+	with open(filename, mode="wb") as f:
 		pickle.dump(vocab, f)
-	
-	with open(inv_filename, mode="wb") as f:
 		pickle.dump(vocab_inv, f)
 
 def load_vocab(dirname):
 	vocab = None
 	vocab_inv = None
-	vocab_filename = dirname + "/vocab.pickle"
-	inv_filename = dirname + "/inv.pickle"
+	filename = dirname + "/vocab.pickle"
 	
-	if os.path.isfile(vocab_filename):
-		with open(vocab_filename, mode="rb") as f:
+	if os.path.isfile(filename):
+		with open(filename, mode="rb") as f:
 			vocab = pickle.load(f)
-	
-	if os.path.isfile(inv_filename):
-		with open(inv_filename, mode="rb") as f:
 			vocab_inv = pickle.load(f)
 
 	return vocab, vocab_inv
@@ -77,7 +70,7 @@ def load_model(dirname):
 			except Exception as e:
 				raise Exception("could not load {}".format(param_filename))
 
-		qrnn = RNNModel(params["vocab_size"], params["ndim_embedding"], params["num_layers"], params["ndim_h"], params["kernel_size"], params["pooling"], params["zoneout"], params["dropout"], params["wgain"], params["densely_connected"], params["ignore_label"])
+		qrnn = RNNModel(**params)
 
 		if os.path.isfile(model_filename):
 			print("loading {} ...".format(model_filename))
