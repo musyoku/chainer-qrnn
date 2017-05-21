@@ -14,6 +14,33 @@ from model import seq2seq, load_model, save_model, save_vocab
 from error import compute_error_rate_buckets, compute_random_error_rate_buckets, softmax_cross_entropy
 from translate import dump_random_source_target_translation
 
+def get_current_learning_rate(opt):
+	if isinstance(opt, optimizers.NesterovAG):
+		return opt.lr
+	if isinstance(opt, optimizers.Adam):
+		return opt.alpha
+	raise NotImplementationError()
+
+def get_optimizer(name, lr, momentum):
+	if name == "nesterov":
+		return optimizers.NesterovAG(lr=lr, momentum=momentum)
+	if name == "adam":
+		return optimizers.Adam(alpha=lr, beta1=momentum)
+	raise NotImplementationError()
+
+def decay_learning_rate(opt, factor, final_value):
+	if isinstance(opt, optimizers.NesterovAG):
+		if opt.lr <= final_value:
+			return
+		opt.lr *= factor
+		return
+	if isinstance(opt, optimizers.Adam):
+		if opt.alpha <= final_value:
+			return
+		opt.alpha *= factor
+		return
+	raise NotImplementationError()
+
 # reference
 # https://www.tensorflow.org/tutorials/seq2seq
 
@@ -85,13 +112,13 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, dropout=args.dropout, zoneout=args.zoneout, weightnorm=args.weightnorm, wgain=args.wgain, densely_connected=args.densely_connected, attention=args.attention)
+		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.ndim_h, args.num_layers, pooling=args.pooling, dropout=args.dropout, zoneout=args.zoneout, weightnorm=args.weightnorm, wgain=args.wgain, densely_connected=args.densely_connected, attention=args.attention)
 	if args.gpu_device >= 0:
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
 	# setup an optimizer
-	optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
+	optimizer = get_optimizer(args.optimizer, args.learning_rate, args.momentum)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
@@ -164,11 +191,10 @@ def main(args):
 
 			elapsed_time = (time.time() - start_time) / 60.
 			total_time += elapsed_time
-			print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
+			print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
-		if optimizer.alpha > final_learning_rate:
-			optimizer.alpha *= decay_factor
+		decay_learning_rate(optimizer, decay_factor, final_learning_rate)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

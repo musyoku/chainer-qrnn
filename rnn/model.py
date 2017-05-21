@@ -97,7 +97,7 @@ class RNNModel(Chain):
 		self.zoneout = zoneout
 		self.weightnorm = weightnorm
 		self.dropout = dropout
-		self.dropout_ratio = 0.5
+		self.dropout_ratio = 0.4
 		self.wgain = wgain
 		self.ignore_label = ignore_label
 		self.densely_connected = densely_connected
