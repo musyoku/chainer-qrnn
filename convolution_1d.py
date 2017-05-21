@@ -65,10 +65,8 @@ class Convolution1DFunction(convolution_nd.ConvolutionND):
 			gx, gW, gb = super(Convolution1DFunction, self).backward((x, self.W, b), grad_outputs)
 
 		xp = cuda.get_array_module(x)
-		gg = xp.sum(gW * self.V_normalized, axis=(1, 2), keepdims=True).astype(g.dtype, copy=False)
+		gg = xp.sum(gW * self.V_normalized, axis=(1, 2), keepdims=True)
 		gV = g * (gW - gg * self.V_normalized) / self.norm
-		gV = gV.astype(V.dtype, copy=False)
-
 
 		if b is None:
 			return gx, gV, gg

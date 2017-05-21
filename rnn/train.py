@@ -99,7 +99,6 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 	final_learning_rate = 1e-4
-	decay_factor = 0.95
 	total_time = 0
 
 	def mean(l):
@@ -158,28 +157,32 @@ def main(args):
 		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
-		decay_learning_rate(optimizer, decay_factor, final_learning_rate)
+		decay_learning_rate(optimizer, args.lr_decay, final_learning_rate)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--batchsize", "-b", type=int, default=24)
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--grad-clip", "-gc", type=float, default=10) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-5) 
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
+	parser.add_argument("--lr-decay", "-decay", type=float, default=0.95)
+	parser.add_argument("--momentum", "-mo", type=float, default=0.9)
+	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
+	
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=640)
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=1)
-	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
-	parser.add_argument("--momentum", "-mo", type=float, default=0.9)
-	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
+
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
 	parser.add_argument("--weightnorm", "-weightnorm", default=False, action="store_true")
+	
+	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
