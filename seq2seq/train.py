@@ -85,7 +85,7 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, dropout=args.dropout, zoneout=args.zoneout, wgain=args.wgain, densely_connected=args.densely_connected, attention=args.attention)
+		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, pooling=args.pooling, dropout=args.dropout, zoneout=args.zoneout, weightnorm=args.weightnorm, wgain=args.wgain, densely_connected=args.densely_connected, attention=args.attention)
 	if args.gpu_device >= 0:
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -186,6 +186,8 @@ if __name__ == "__main__":
 	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
+	parser.add_argument("--momentum", "-mo", type=float, default=0.9)
+	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
 
 	parser.add_argument("--ndim-h", "-nh", type=int, default=320)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=320)
@@ -195,6 +197,7 @@ if __name__ == "__main__":
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
 	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
 	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
+	parser.add_argument("--weightnorm", "-weightnorm", default=False, action="store_true")
 	parser.add_argument("--attention", "-attention", default=False, action="store_true")
 	
 	parser.add_argument("--buckets-slice", type=int, default=None)

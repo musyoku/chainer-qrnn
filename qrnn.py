@@ -7,6 +7,7 @@ import chainer
 from chainer import cuda, Variable, function, link, functions, links, initializers
 from chainer.utils import type_check
 from chainer.links import EmbedID, Linear, BatchNormalization
+from convolution_1d import Convolution1D
 
 class Zoneout(function.Function):
 	def __init__(self, p):
@@ -33,10 +34,16 @@ def zoneout(x, ratio=.5):
 	return Zoneout(ratio)(x)
 
 class QRNN(link.Chain):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1.):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1., weightnorm=False):
 		self.num_split = len(pooling) + 1
-		wstd = math.sqrt(wgain / in_channels / kernel_size)
-		super(QRNN, self).__init__(W=links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.Normal(wstd)))
+		if weightnorm:
+			wstd = 0.05
+			W = Convolution1D(in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialV=initializers.HeNormal(wstd))
+		else:
+			wstd = math.sqrt(wgain / in_channels / kernel_size)
+			W = links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.HeNormal(wstd))
+
+		super(QRNN, self).__init__(W=W)
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
 		self.reset_state()
 

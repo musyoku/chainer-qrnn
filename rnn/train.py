@@ -13,6 +13,33 @@ from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_b
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
 from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity, softmax_cross_entropy
 
+def get_current_learning_rate(opt):
+	if isinstance(opt, optimizers.NesterovAG):
+		return opt.lr
+	if isinstance(opt, optimizers.Adam):
+		return opt.alpha
+	raise NotImplementationError()
+
+def get_optimizer(name, lr, momentum):
+	if name == "nesterov":
+		return optimizers.NesterovAG(lr=lr, momentum=momentum)
+	if name == "adam":
+		return optimizers.Adam(alpha=lr, beta1=momentum)
+	raise NotImplementationError()
+
+def decay_learning_rate(opt, factor, final_value):
+	if isinstance(opt, optimizers.NesterovAG):
+		if opt.lr <= final_value:
+			return
+		opt.lr *= factor
+		return
+	if isinstance(opt, optimizers.Adam):
+		if opt.alpha <= final_value:
+			return
+		opt.alpha *= factor
+		return
+	raise NotImplementationError()
+
 def main(args):
 	# load textfile
 	dataset_train, dataset_dev, _, vocab, vocab_inv = read_data(args.train_filename, args.dev_filename)
@@ -61,13 +88,13 @@ def main(args):
 	# init
 	model = load_model(args.model_dir)
 	if model is None:
-		model = RNNModel(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, kernel_size=args.kernel_size, pooling=args.pooling, zoneout=args.zoneout, dropout=args.dropout, wgain=args.wgain, densely_connected=args.densely_connected, ignore_label=ID_PAD)
+		model = RNNModel(vocab_size, args.ndim_embedding, args.num_layers, ndim_h=args.ndim_h, kernel_size=args.kernel_size, pooling=args.pooling, zoneout=args.zoneout, dropout=args.dropout, weightnorm=args.weightnorm, wgain=args.wgain, densely_connected=args.densely_connected, ignore_label=ID_PAD)
 	if args.gpu_device >= 0:
 		chainer.cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
 
 	# setup an optimizer
-	optimizer = optimizers.Adam(alpha=args.learning_rate, beta1=0.9)
+	optimizer = get_optimizer(args.optimizer, args.learning_rate, args.momentum)
 	optimizer.setup(model)
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
@@ -128,33 +155,35 @@ def main(args):
 
 		elapsed_time = (time.time() - start_time) / 60.
 		total_time += elapsed_time
-		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), optimizer.alpha, int(total_time)))
+		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
-		if optimizer.alpha > final_learning_rate:
-			optimizer.alpha *= decay_factor
+		decay_learning_rate(optimizer, decay_factor, final_learning_rate)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
+	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--batchsize", "-b", type=int, default=24)
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
-	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
 	parser.add_argument("--grad-clip", "-gc", type=float, default=10) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-5) 
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)
 	parser.add_argument("--ndim-embedding", "-ne", type=int, default=640)
 	parser.add_argument("--num-layers", "-layers", type=int, default=2)
-	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=1)
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
+	parser.add_argument("--momentum", "-mo", type=float, default=0.9)
+	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
+	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
+	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
+	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
+	parser.add_argument("--weightnorm", "-weightnorm", default=False, action="store_true")
+	parser.add_argument("--interval", type=int, default=100)
 	parser.add_argument("--buckets-slice", type=int, default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	parser.add_argument("--train-filename", "-train", default=None)
 	parser.add_argument("--dev-filename", "-dev", default=None)
-	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
-	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
-	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
 	args = parser.parse_args()
 	main(args)

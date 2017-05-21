@@ -51,6 +51,7 @@ def save_model(dirname, qrnn):
 		"pooling": qrnn.pooling,
 		"zoneout": qrnn.zoneout,
 		"dropout": qrnn.dropout,
+		"weightnorm": qrnn.weightnorm,
 		"wgain": qrnn.wgain,
 		"densely_connected": qrnn.densely_connected,
 		"ignore_label": qrnn.ignore_label,
@@ -81,7 +82,7 @@ def load_model(dirname):
 		return None
 
 class RNNModel(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, dropout=False, wgain=1, densely_connected=False, ignore_label=None):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, dropout=False, weightnorm=False, wgain=1, densely_connected=False, ignore_label=None):
 		super(RNNModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
 			dense=L.Linear(ndim_h, vocab_size),
@@ -94,15 +95,16 @@ class RNNModel(Chain):
 		self.kernel_size = kernel_size
 		self.pooling = pooling
 		self.zoneout = zoneout
+		self.weightnorm = weightnorm
 		self.dropout = dropout
 		self.dropout_ratio = 0.5
 		self.wgain = wgain
 		self.ignore_label = ignore_label
 		self.densely_connected = densely_connected
 
-		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
 		for i in xrange(1, num_layers):
-			self.add_link("qrnn{}".format(i), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("qrnn{}".format(i), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
 
 	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))
