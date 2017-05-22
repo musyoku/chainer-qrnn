@@ -209,10 +209,10 @@ if __name__ == "__main__":
 	parser.add_argument("--epoch", "-e", type=int, default=1000)
 	parser.add_argument("--interval", type=int, default=10)
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
-	parser.add_argument("--grad-clip", "-gc", type=float, default=5) 
+	parser.add_argument("--grad-clip", "-gc", type=float, default=0.1) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
-	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
-	parser.add_argument("--momentum", "-mo", type=float, default=0.9)
+	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
+	parser.add_argument("--momentum", "-mo", type=float, default=0.99)
 	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
 
 	parser.add_argument("--ndim-h", "-nh", type=int, default=320)
