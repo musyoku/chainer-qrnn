@@ -29,7 +29,7 @@ def read_data_and_vocab(source_filename_train=None, target_filename_train=None, 
 			for sentence in f:
 				sentence = sentence.strip()
 				if len(sentence) == 0:
-					continue
+					raise Exception("empty line {}".format(len(dataset) + 1))
 				word_ids = []
 				if prefix:
 					word_ids.append(prefix)
@@ -52,6 +52,10 @@ def read_data_and_vocab(source_filename_train=None, target_filename_train=None, 
 	add_file(target_filename_train, vocab_target, target_dataset_train, ID_GO, ID_EOS)
 	add_file(target_filename_dev, vocab_target, target_dataset_dev, ID_GO, ID_EOS)
 	add_file(target_filename_test, vocab_target, target_dataset_test, ID_GO, ID_EOS)
+
+	assert len(source_dataset_train) == len(target_dataset_train)
+	assert len(source_dataset_dev) == len(target_dataset_dev)
+	assert len(source_dataset_test) == len(target_dataset_test)
 
 	vocab_inv_source = {}
 	for word, word_id in vocab_source.items():

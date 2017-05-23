@@ -39,6 +39,8 @@ python generate.py -n 10
 
 ### Preprocessing
 
+**You need to delete lines 204446 and 339047 of `train.en` and `train.ja`.**
+
 We use [SentencePiece](https://github.com/google/sentencepiece) to tokenize text.
 
 ```
