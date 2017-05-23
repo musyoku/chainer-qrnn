@@ -8,7 +8,7 @@ import chainer
 import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
-sys.path.append(os.path.split(os.getcwd())[0])
+sys.path.append(os.pardir)
 from model import load_model, load_vocab, Seq2SeqModel, AttentiveSeq2SeqModel
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import sample_batch_from_bucket, read_data

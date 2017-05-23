@@ -2,7 +2,7 @@ import sys, os, json, pickle
 import chainer.functions as F
 from six.moves import xrange
 from chainer import Chain, serializers
-sys.path.append(os.path.split(os.getcwd())[0])
+sys.path.append(os.pardir)
 import qrnn as L
 
 def save_vocab(dirname, vocab, vocab_inv):

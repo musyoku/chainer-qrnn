@@ -252,25 +252,19 @@ def compute_error_rate_source_batch(model, source_batch, target_batch, target_vo
 		target_tokens = []
 		for token in target_batch[n]:
 			token = int(token)	# to cpu
-			if token == ID_PAD:
-				break
-			if token == ID_EOS:
-				break
 			if token == ID_GO:
 				continue
 			target_tokens.append(token)
+			if token == ID_EOS:
+				break
 		assert len(target_tokens) > 0
 
 		predict_tokens = []
 		for token in x[n]:
 			token = int(token)	# to cpu
+			predict_tokens.append(token)
 			if token == ID_EOS:
 				break
-			if token == ID_PAD:
-				break
-			if token == ID_GO:
-				continue
-			predict_tokens.append(token)
 		assert len(predict_tokens) > 0
 
 		wer = compute_error_rate_target_prediction(target_tokens, predict_tokens)
@@ -285,25 +279,19 @@ def compute_error_rate_source_sequence(model, source, target, target_vocab_size,
 	target_tokens = []
 	for token in target:
 		token = int(token)	# to cpu
-		if token == ID_PAD:
-			break
-		if token == ID_EOS:
-			break
 		if token == ID_GO:
 			continue
 		target_tokens.append(token)
+		if token == ID_EOS:
+			break
 		assert len(target_tokens) > 0
 
 	predict_tokens = []
 	for token in x:
 		token = int(token)	# to cpu
+		predict_tokens.append(token)
 		if token == ID_EOS:
 			break
-		if token == ID_PAD:
-			break
-		if token == ID_GO:
-			continue
-		predict_tokens.append(token)
 		assert len(predict_tokens) > 0
 
 	return compute_error_rate_target_prediction(target_tokens, predict_tokens)
