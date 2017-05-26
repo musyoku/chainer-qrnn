@@ -70,20 +70,10 @@ def main(args):
 			print("{}	{}".format(size, len(data)))
 
 	# to maintain equilibrium
-	min_num_data = 0
-	for data in train_buckets:
-		if min_num_data == 0 or len(data) < min_num_data:
-			min_num_data = len(data)
 	repeats = []
 	for data in train_buckets:
-		repeat = len(data) // min_num_data
-		repeat = repeat + 1 if repeat == 0 else repeat
+		repeat = len(data) // args.batchsize
 		repeats.append(repeat)
-
-	num_updates_per_iteration = 0
-	for repeat, data in zip(repeats, train_buckets):
-		num_updates_per_iteration += repeat * args.batchsize
-	num_iteration = len(dataset_train) // num_updates_per_iteration + 1
 
 	# init
 	model = load_model(args.model_dir)
@@ -110,21 +100,29 @@ def main(args):
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
-			for itr in xrange(1, num_iteration + 1):
-				for bucket_index, (repeat, dataset) in enumerate(zip(repeats, train_buckets)):
-					for r in xrange(repeat):
-						batch = sample_batch_from_bucket(dataset, args.batchsize)
-						source, target = make_source_target_pair(batch)
-						if model.xp is cuda.cupy:
-							source = cuda.to_gpu(source)
-							target = cuda.to_gpu(target)
-						model.reset_state()
-						Y = model(source)
-						loss = softmax_cross_entropy(Y, target, ignore_label=ID_PAD)
-						optimizer.update(lossfun=lambda: loss)
+			for bucket_idx, (repeat, dataset) in enumerate(zip(repeats, train_buckets)):
+				for itr in xrange(repeat):
+					data_batch = dataset[:args.batchsize]
+					source_batch, target_batch = make_source_target_pair(data_batch)
 
-					sys.stdout.write("\riteration {}/{} bucket {}/{}".format(itr, num_iteration, bucket_index + 1, len(train_buckets)))
+					if model.xp is cuda.cupy:
+						source_batch = cuda.to_gpu(source_batch)
+						target_batch = cuda.to_gpu(target_batch)
+
+					model.reset_state()
+					y_batch = model(source_batch)
+					loss = softmax_cross_entropy(y_batch, target_batch, ignore_label=ID_PAD)
+					optimizer.update(lossfun=lambda: loss)
+
+					sys.stdout.write("\r" + stdout.CLEAR)
+					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(train_buckets), itr + 1, repeat))
 					sys.stdout.flush()
+
+				train_buckets[bucket_idx] = dataset
+
+			# shuffle
+			for bucket_idx in xrange(len(train_buckets)):
+				np.random.shuffle(train_buckets[bucket_idx])
 
 		# serialize
 		save_model(args.model_dir, model)

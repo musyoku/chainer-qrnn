@@ -94,20 +94,10 @@ def main(args):
 			print("{} 	{}".format(size, len(data)))
 
 	# to maintain equilibrium
-	min_num_data = 0
-	for data in source_buckets_train:
-		if min_num_data == 0 or len(data) < min_num_data:
-			min_num_data = len(data)
 	repeats = []
-	sum_data = 0
-	for data in source_buckets_train:
-		repeats.append(len(data) // min_num_data + 1)
-		sum_data += len(data)
-
-	num_updates_per_iteration = 0
-	for repeat, data in zip(repeats, source_buckets_train):
-		num_updates_per_iteration += repeat * args.batchsize
-	num_iteration = sum_data // num_updates_per_iteration + 1
+	for data in train_buckets:
+		repeat = len(data) // args.batchsize
+		repeats.append(repeat)
 
 	# init
 	model = load_model(args.model_dir)
@@ -135,34 +125,33 @@ def main(args):
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
-			for itr in xrange(1, num_iteration + 1):
-				for bucket_index, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
-					for r in xrange(repeat):
-						# sample minibatch
-						source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
-						skip_mask = source_batch != ID_PAD
-						target_batch_input, target_batch_output = make_source_target_pair(target_batch)
+			for bucket_index, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
+				for r in xrange(repeat):
+					# sample minibatch
+					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
+					skip_mask = source_batch != ID_PAD
+					target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
-						# to gpu
-						if model.xp is cuda.cupy:
-							skip_mask = cuda.to_gpu(skip_mask)
-							source_batch = cuda.to_gpu(source_batch)
-							target_batch_input = cuda.to_gpu(target_batch_input)
-							target_batch_output = cuda.to_gpu(target_batch_output)
+					# to gpu
+					if model.xp is cuda.cupy:
+						skip_mask = cuda.to_gpu(skip_mask)
+						source_batch = cuda.to_gpu(source_batch)
+						target_batch_input = cuda.to_gpu(target_batch_input)
+						target_batch_output = cuda.to_gpu(target_batch_output)
 
-						# compute loss
-						model.reset_state()
-						if args.attention:
-							last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
-							Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
-						else:
-							last_hidden_states = model.encode(source_batch, skip_mask)
-							Y = model.decode(target_batch_input, last_hidden_states)
-						loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
-						optimizer.update(lossfun=lambda: loss)
+					# compute loss
+					model.reset_state()
+					if args.attention:
+						last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
+						Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
+					else:
+						last_hidden_states = model.encode(source_batch, skip_mask)
+						Y = model.decode(target_batch_input, last_hidden_states)
+					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
+					optimizer.update(lossfun=lambda: loss)
 
-					sys.stdout.write("\riteration {}/{} bucket {}/{}".format(itr, num_iteration, bucket_index + 1, len(source_buckets_train)))
-					sys.stdout.flush()
+				sys.stdout.write("\rbucket {}/{} iteration {}/{}".format(itr, num_iteration, bucket_index + 1, len(source_buckets_train)))
+				sys.stdout.flush()
 
 		# serialize
 		save_model(args.model_dir, model)
