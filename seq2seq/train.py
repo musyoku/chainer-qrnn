@@ -157,8 +157,8 @@ def main(args):
 					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
-					source_bucket = np.roll(source_bucket, -args.batchsize)	# shift
-					target_bucket = np.roll(target_bucket, -args.batchsize)	# shift
+					source_bucket = np.roll(source_bucket, -args.batchsize, axis=0)	# shift
+					target_bucket = np.roll(target_bucket, -args.batchsize, axis=0)	# shift
 
 					sys.stdout.write("\r" + stdout.CLEAR)
 					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(source_buckets_train), itr + 1, repeat))
@@ -190,10 +190,6 @@ def main(args):
 				if source_dataset_dev is not None:
 					print_bold("translate (dev)")
 					dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
-
-				print_bold("WER (train)")
-				wer_train = compute_random_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_inv_target), beam_width=1)
-				print(mean(wer_train), wer_train)
 
 				if source_dataset_dev is not None:
 					print_bold("WER (dev)")

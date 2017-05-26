@@ -114,7 +114,7 @@ def main(args):
 					loss = softmax_cross_entropy(y_batch, target_batch, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
-					dataset = np.roll(dataset, -args.batchsize)	# shift
+					dataset = np.roll(dataset, -args.batchsize, axis=0)	# shift
 
 					sys.stdout.write("\r" + stdout.CLEAR)
 					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(train_buckets), itr + 1, repeat))
