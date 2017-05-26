@@ -126,9 +126,10 @@ def main(args):
 
 		with chainer.using_config("train", True):
 			for bucket_index, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
-				for r in xrange(repeat):
+				for itr in xrange(repeat):
 					# sample minibatch
-					source_batch, target_batch = sample_batch_from_bucket(source_bucket, target_bucket, args.batchsize)
+					source_batch = source_bucket[:args.batchsize]
+					target_batch = target_bucket[:args.batchsize]
 					skip_mask = source_batch != ID_PAD
 					target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
@@ -150,8 +151,9 @@ def main(args):
 					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
-				sys.stdout.write("\rbucket {}/{} iteration {}/{}".format(itr, num_iteration, bucket_index + 1, len(source_buckets_train)))
-				sys.stdout.flush()
+					sys.stdout.write("\r" + stdout.CLEAR)
+					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(train_buckets), itr + 1, repeat))
+					sys.stdout.flush()
 
 		# serialize
 		save_model(args.model_dir, model)
