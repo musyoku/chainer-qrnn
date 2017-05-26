@@ -95,8 +95,8 @@ def main(args):
 
 	# to maintain equilibrium
 	repeats = []
-	for data in train_buckets:
-		repeat = len(data) // args.batchsize
+	for data in source_buckets_train:
+		repeat = len(data) // args.batchsize + 1
 		repeats.append(repeat)
 
 	# init
@@ -116,6 +116,12 @@ def main(args):
 	decay_factor = 0.95
 	total_time = 0
 
+	indices_train = []
+	for bucket_idx, bucket in enumerate(source_buckets_train):
+		indices = np.arange(len(bucket))
+		np.random.shuffle(indices)
+		indices_train.append(indices)
+
 	def mean(l):
 		return sum(l) / len(l)
 
@@ -125,7 +131,7 @@ def main(args):
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
-			for bucket_index, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
+			for bucket_idx, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
 				for itr in xrange(repeat):
 					# sample minibatch
 					source_batch = source_bucket[:args.batchsize]
@@ -151,9 +157,23 @@ def main(args):
 					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 					optimizer.update(lossfun=lambda: loss)
 
+					source_bucket = np.roll(source_bucket, -args.batchsize)	# shift
+					target_bucket = np.roll(target_bucket, -args.batchsize)	# shift
+
 					sys.stdout.write("\r" + stdout.CLEAR)
-					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(train_buckets), itr + 1, repeat))
+					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(source_buckets_train), itr + 1, repeat))
 					sys.stdout.flush()
+
+
+				source_buckets_train[bucket_idx] = source_bucket
+				target_buckets_train[bucket_idx] = target_bucket
+
+			# shuffle
+			for bucket_idx in xrange(len(source_buckets_train)):
+				indices = indices_train[bucket_idx]
+				np.random.shuffle(indices)
+				source_buckets_train[bucket_idx] = source_buckets_train[bucket_idx][indices]
+				target_buckets_train[bucket_idx] = target_buckets_train[bucket_idx][indices]
 
 		# serialize
 		save_model(args.model_dir, model)
