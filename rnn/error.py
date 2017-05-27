@@ -252,7 +252,7 @@ def compute_accuracy(model, buckets, batchsize=100):
 			sys.stdout.flush()
 			acc.append(compute_accuracy_batch(model, batch))
 
-		result.append(reduce(lambda x, y: x + y, acc) / len(acc))
+		result.append(sum(acc) / len(acc))
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 
@@ -296,7 +296,8 @@ def compute_perplexity(model, buckets, batchsize=100):
 			sys.stdout.flush()
 			ppl.append(compute_perplexity_batch(model, batch))
 
-		result.append(reduce(lambda x, y: x + y, ppl) / len(ppl))
+		result.append(sum(ppl) / len(ppl))
+		
 		sys.stdout.write("\r" + stdout.CLEAR)
 		sys.stdout.flush()
 	return result
