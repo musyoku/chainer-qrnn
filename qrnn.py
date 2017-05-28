@@ -34,7 +34,7 @@ def zoneout(x, ratio=.5):
 	return Zoneout(ratio)(x)
 
 class QRNN(link.Chain):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1., weightnorm=False):
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=0, wgain=1., weightnorm=False):
 		self.num_split = len(pooling) + 1
 		if weightnorm:
 			wstd = 0.05
@@ -44,7 +44,8 @@ class QRNN(link.Chain):
 			W = links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.HeNormal(wstd))
 
 		super(QRNN, self).__init__(W=W)
-		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout, self._zoneout_ratio = in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio
+		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout = in_channels, out_channels, kernel_size, pooling, zoneout
+		self._using_zoneout = True if self._zoneout > 0 else False
 		self.reset_state()
 
 	def __call__(self, X, skip_mask=None):
@@ -68,8 +69,8 @@ class QRNN(link.Chain):
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
 	def zoneout(self, U):
-		if self._zoneout and chainer.config.train:
-			return 1 - zoneout(functions.sigmoid(-U), self._zoneout_ratio)
+		if self._using_zoneout and chainer.config.train:
+			return 1 - zoneout(functions.sigmoid(-U), self._zoneout)
 		return functions.sigmoid(U)
 
 	def pool(self, WX, skip_mask=None):

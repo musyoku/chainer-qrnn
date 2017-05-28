@@ -82,7 +82,7 @@ def load_model(dirname):
 		return None
 
 class RNNModel(Chain):
-	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=False, dropout=False, weightnorm=False, wgain=1, densely_connected=False, ignore_label=None):
+	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=0, dropout=0, weightnorm=False, wgain=1, densely_connected=False, ignore_label=None):
 		super(RNNModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
 			dense=L.Linear(ndim_h, vocab_size),
@@ -96,8 +96,8 @@ class RNNModel(Chain):
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.weightnorm = weightnorm
+		self.using_dropout = True if dropout > 0 else False
 		self.dropout = dropout
-		self.dropout_ratio = 0.4
 		self.wgain = wgain
 		self.ignore_label = ignore_label
 		self.densely_connected = densely_connected
@@ -115,7 +115,7 @@ class RNNModel(Chain):
 
 	def _forward_layer(self, layer_index, in_data):
 		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio)
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		rnn = self.get_rnn_layer(layer_index)
 		out_data = rnn(in_data)
 		return out_data
@@ -143,7 +143,7 @@ class RNNModel(Chain):
 			out_data = out_data[:, :, -1, None]
 
 		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio)
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -153,7 +153,7 @@ class RNNModel(Chain):
 	def _forward_layer_one_step(self, layer_index, in_data):
 		rnn = self.get_rnn_layer(layer_index)
 		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio)
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		out_data = rnn.forward_one_step(in_data)
 		return out_data
 
@@ -184,7 +184,7 @@ class RNNModel(Chain):
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
 		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio)
+			out_data = F.dropout(out_data, ratio=self.dropout)
 			
 		out_data = out_data[:, :, -1, None]
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))

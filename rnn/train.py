@@ -179,8 +179,8 @@ if __name__ == "__main__":
 	parser.add_argument("--wgain", "-w", type=float, default=1)
 
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
-	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
-	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
+	parser.add_argument("--zoneout", "-zoneout", type=float, default=0)
+	parser.add_argument("--dropout", "-dropout", type=float, default=0)
 	parser.add_argument("--weightnorm", "-weightnorm", default=False, action="store_true")
 	
 	parser.add_argument("--gpu-device", "-g", type=int, default=0) 
