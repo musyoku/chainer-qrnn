@@ -102,6 +102,7 @@ def main(args):
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
+
 			for itr in xrange(total_iterations):
 				bucket_idx = int(np.random.choice(np.arange(len(train_buckets)), size=1, p=buckets_distribution))
 				dataset = train_buckets[bucket_idx]
@@ -124,8 +125,8 @@ def main(args):
 				train_buckets[bucket_idx] = np.roll(dataset, -args.batchsize, axis=0)	# shift
 
 			# shuffle
-			for bucket_idx in xrange(len(train_buckets)):
-				np.random.shuffle(train_buckets[bucket_idx])
+			for bucket in train_buckets:
+				np.random.shuffle(bucket)
 
 		# serialize
 		save_model(args.model_dir, model)
@@ -169,7 +170,7 @@ if __name__ == "__main__":
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
 	parser.add_argument("--lr-decay", "-decay", type=float, default=0.95)
 	parser.add_argument("--momentum", "-mo", type=float, default=0.99)
-	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
+	parser.add_argument("--optimizer", "-opt", type=str, default="adam")
 	
 	parser.add_argument("--kernel-size", "-ksize", type=int, default=4)
 	parser.add_argument("--ndim-h", "-nh", type=int, default=640)

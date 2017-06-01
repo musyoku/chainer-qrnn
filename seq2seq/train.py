@@ -94,10 +94,12 @@ def main(args):
 			print("{} 	{}".format(size, len(data)))
 
 	# to maintain equilibrium
-	repeats = []
+	required_interations = []
 	for data in source_buckets_train:
-		repeat = len(data) // args.batchsize + 1
-		repeats.append(repeat)
+		itr = len(data) // args.batchsize + 1
+		required_interations.append(itr)
+	total_iterations = sum(required_interations)
+	buckets_distribution = np.asarray(required_interations, dtype=float) / total_iterations
 
 	# init
 	model = load_model(args.model_dir)
@@ -131,42 +133,44 @@ def main(args):
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
-			for bucket_idx, (repeat, source_bucket, target_bucket) in enumerate(zip(repeats, source_buckets_train, target_buckets_train)):
-				for itr in xrange(repeat):
-					# sample minibatch
-					source_batch = source_bucket[:args.batchsize]
-					target_batch = target_bucket[:args.batchsize]
-					skip_mask = source_batch != ID_PAD
-					target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
-					# to gpu
-					if model.xp is cuda.cupy:
-						skip_mask = cuda.to_gpu(skip_mask)
-						source_batch = cuda.to_gpu(source_batch)
-						target_batch_input = cuda.to_gpu(target_batch_input)
-						target_batch_output = cuda.to_gpu(target_batch_output)
+			for itr in xrange(total_iterations):
+				bucket_idx = int(np.random.choice(np.arange(len(source_buckets_train)), size=1, p=buckets_distribution))
+				source_bucket = source_buckets_train[bucket_idx]
+				target_bucket = target_buckets_train[bucket_idx]
 
-					# compute loss
-					model.reset_state()
-					if args.attention:
-						last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
-						Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
-					else:
-						last_hidden_states = model.encode(source_batch, skip_mask)
-						Y = model.decode(target_batch_input, last_hidden_states)
-					loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
-					optimizer.update(lossfun=lambda: loss)
+				# sample minibatch
+				source_batch = source_bucket[:args.batchsize]
+				target_batch = target_bucket[:args.batchsize]
+				skip_mask = source_batch != ID_PAD
+				target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
-					source_bucket = np.roll(source_bucket, -args.batchsize, axis=0)	# shift
-					target_bucket = np.roll(target_bucket, -args.batchsize, axis=0)	# shift
+				# to gpu
+				if model.xp is cuda.cupy:
+					skip_mask = cuda.to_gpu(skip_mask)
+					source_batch = cuda.to_gpu(source_batch)
+					target_batch_input = cuda.to_gpu(target_batch_input)
+					target_batch_output = cuda.to_gpu(target_batch_output)
 
-					sys.stdout.write("\r" + stdout.CLEAR)
-					sys.stdout.write("\rbucket {}/{} - iteration {}/{}".format(bucket_idx + 1, len(source_buckets_train), itr + 1, repeat))
-					sys.stdout.flush()
+				# compute loss
+				model.reset_state()
+				if args.attention:
+					last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
+					Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
+				else:
+					last_hidden_states = model.encode(source_batch, skip_mask)
+					Y = model.decode(target_batch_input, last_hidden_states)
+				loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
 
+				# update parameters
+				optimizer.update(lossfun=lambda: loss)
 
-				source_buckets_train[bucket_idx] = source_bucket
-				target_buckets_train[bucket_idx] = target_bucket
+				sys.stdout.write("\r" + stdout.CLEAR)
+				sys.stdout.write("\riteration {}/{}".format(itr + 1, total_iterations))
+				sys.stdout.flush()
+
+				source_buckets_train[bucket_idx] = np.roll(source_bucket, -args.batchsize, axis=0)	# shift
+				target_buckets_train[bucket_idx] = np.roll(target_bucket, -args.batchsize, axis=0)	# shift
 
 			# shuffle
 			for bucket_idx in xrange(len(source_buckets_train)):
@@ -227,9 +231,9 @@ if __name__ == "__main__":
 	parser.add_argument("--num-layers", "-layers", type=int, default=4)
 	parser.add_argument("--pooling", "-p", type=str, default="fo")
 	parser.add_argument("--wgain", "-w", type=float, default=1)
+	parser.add_argument("--zoneout", "-zoneout", type=float, default=0)
+	parser.add_argument("--dropout", "-dropout", type=float, default=0)
 	parser.add_argument("--densely-connected", "-dense", default=False, action="store_true")
-	parser.add_argument("--zoneout", "-zoneout", default=False, action="store_true")
-	parser.add_argument("--dropout", "-dropout", default=False, action="store_true")
 	parser.add_argument("--weightnorm", "-weightnorm", default=False, action="store_true")
 	parser.add_argument("--attention", "-attention", default=False, action="store_true")
 	

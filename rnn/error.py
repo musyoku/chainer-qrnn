@@ -267,8 +267,6 @@ def compute_random_accuracy(model, buckets, batchsize=100):
 
 def compute_perplexity_batch(model, batch):
 	sum_log_likelihood = 0
-	# batch = batch[:, 1:]	# remove <bos>
-	# batch[batch == ID_EOS] = ID_PAD	# replace <eos> with <pad>
 	source, target = make_source_target_pair(batch)
 	xp = model.xp
 	if xp is cuda.cupy:

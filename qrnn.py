@@ -59,7 +59,7 @@ class QRNN(link.Chain):
 		#     |< t2 >|
 		#         |< t3 >|
 		pad = self._kernel_size - 1
-		WX = self.W(X)[:, :, :-pad]
+		WX = self.W(X)[..., :-pad]
 
 		return self.pool(functions.split_axis(WX, self.num_split, axis=1), skip_mask=skip_mask)
 
@@ -105,10 +105,10 @@ class QRNN(link.Chain):
 
 		T = Z.shape[2]
 		for t in xrange(T):
-			zt = Z[:, :, t]
-			ft = F[:, :, t]
-			ot = 1 if O is None else O[:, :, t]
-			it = 1 - ft if I is None else I[:, :, t]
+			zt = Z[..., t]
+			ft = F[..., t]
+			ot = 1 if O is None else O[..., t]
+			it = 1 - ft if I is None else I[..., t]
 			xt = 1 if skip_mask is None else skip_mask[:, t, None]	# will be used for seq2seq to skip PAD
 
 			if self.ct is None:
@@ -116,7 +116,6 @@ class QRNN(link.Chain):
 			else:
 				self.ct = ft * self.ct + it * zt * xt
 			self.ht = self.ct if O is None else ot * self.ct
-
 
 			if self.H is None:
 				self.H = functions.expand_dims(self.ht, 2)
@@ -143,8 +142,8 @@ class QRNNEncoder(QRNN):
 	pass
 
 class QRNNDecoder(QRNN):
-	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, zoneout_ratio=0.1, wgain=1., weightnorm=False):
-		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, zoneout_ratio, wgain, weightnorm)
+	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=False, wgain=1., weightnorm=False):
+		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, wgain, weightnorm)
 		self.num_split = len(pooling) + 1
 		wstd = math.sqrt(wgain / in_channels / kernel_size)
 		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
@@ -154,7 +153,7 @@ class QRNNDecoder(QRNN):
 		pad = self._kernel_size - 1
 		WX = self.W(X)
 		if pad > 0:
-			WX = WX[:, :, :-pad]
+			WX = WX[..., :-pad]
 		Vh = self.V(ht_enc)
 
 		# copy Vh
@@ -178,7 +177,7 @@ class QRNNDecoder(QRNN):
 
 	def forward_one_step(self, X, ht_enc):
 		pad = self._kernel_size - 1
-		WX = self.W(X)[:, :, -pad-1, None]
+		WX = self.W(X)[..., -pad-1, None]
 		Vh = self.V(ht_enc)
 
 		Vh, WX = functions.broadcast(functions.expand_dims(Vh, axis=2), WX)
@@ -186,8 +185,8 @@ class QRNNDecoder(QRNN):
 		return self.pool(functions.split_axis(WX + Vh, self.num_split, axis=1))
 
 class QRNNGlobalAttentiveDecoder(QRNNDecoder):
-	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, zoneout_ratio=0.1, wgain=1., weightnorm=False):
-		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, zoneout_ratio, wgain, weightnorm)
+	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, wgain=1., weightnorm=False):
+		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, wgain, weightnorm)
 		wstd = math.sqrt(wgain / in_channels / kernel_size)
 		self.add_link('o', links.Linear(2 * out_channels, out_channels, initialW=initializers.Normal(wstd)))
 
@@ -212,8 +211,8 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 		# compute ungated hidden states
 		self.contexts = []
 		for t in xrange(T):
-			z = Z[:, :, t]
-			f = F[:, :, t]
+			z = Z[..., t]
+			f = F[..., t]
 			if t == 0:
 				ct = (1 - f) * z
 				self.contexts.append(ct)
@@ -235,7 +234,7 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 			alpha = functions.softmax(alpha) * mask
 			alpha = functions.broadcast_to(alpha, H_enc.shape)	# copy
 			kt = functions.sum(alpha * H_enc, axis=1)
-			ot = O[:, :, t]
+			ot = O[..., t]
 			self.ht = ot * self.o(functions.concat((kt, ct), axis=1))
 
 			if t == 0:
@@ -261,8 +260,8 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 
 		# compute ungated hidden states
 		for t in xrange(T):
-			z = Z[:, :, t]
-			f = F[:, :, t]
+			z = Z[..., t]
+			f = F[..., t]
 			if self.contexts is None:
 				ct = (1 - f) * z
 				self.contexts = [ct]
@@ -284,7 +283,7 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 			alpha = functions.softmax(alpha) * mask
 			alpha = functions.broadcast_to(alpha, H_enc.shape)	# copy
 			kt = functions.sum(alpha * H_enc, axis=1)
-			ot = O[:, :, t]
+			ot = O[..., t]
 			self.ht = ot * self.o(functions.concat((kt, ct), axis=1))
 
 			if self.H is None:

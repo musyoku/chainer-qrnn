@@ -111,7 +111,7 @@ class Seq2SeqModel(Chain):
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.dropout = dropout
-		self.dropout_ratio = 0.4
+		self.using_dropout = True if dropout > 0 else False
 		self.weightnorm = weightnorm
 		self.densely_connected = densely_connected
 		self.wgain = wgain
@@ -144,15 +144,15 @@ class Seq2SeqModel(Chain):
 			self.get_decoder(i).reset_state()
 
 	def _forward_encoder_layer(self, layer_index, in_data, skip_mask=None):
-		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		encoder = self.get_encoder(layer_index)
 		out_data = encoder(in_data, skip_mask=skip_mask)
 		return out_data
 
 	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states):
-		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		decoder = self.get_decoder(layer_index)
 		out_data = decoder(in_data, encoder_last_hidden_states)
 		return out_data
@@ -172,8 +172,8 @@ class Seq2SeqModel(Chain):
 
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 
-		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		last_hidden_states = []
 		for layer_index in xrange(0, self.num_layers):
@@ -202,8 +202,8 @@ class Seq2SeqModel(Chain):
 		if return_last:
 			out_data = out_data[:, :, -1, None]
 
-		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -211,8 +211,8 @@ class Seq2SeqModel(Chain):
 		return Y
 
 	def _forward_decoder_layer_one_step(self, layer_index, in_data, encoder_last_hidden_states):
-		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		decoder = self.get_decoder(layer_index)
 		out_data = decoder.forward_one_step(in_data, encoder_last_hidden_states)
 		return out_data
@@ -241,8 +241,8 @@ class Seq2SeqModel(Chain):
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 		out_data = out_data[:, :, -1, None]
 
-		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -269,7 +269,7 @@ class AttentiveSeq2SeqModel(Chain):
 		self.pooling = pooling
 		self.zoneout = zoneout
 		self.dropout = dropout
-		self.dropout_ratio = 0.4
+		self.using_dropout = True if dropout > 0 else False
 		self.weightnorm = weightnorm
 		self.wgain = wgain
 
@@ -305,8 +305,8 @@ class AttentiveSeq2SeqModel(Chain):
 			self.get_decoder(i).reset_state()
 
 	def _forward_encoder_layer(self, layer_index, in_data, skip_mask=None):
-		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		encoder = self.get_encoder(layer_index)
 		out_data = encoder(in_data, skip_mask=skip_mask)
 		return out_data
@@ -321,8 +321,8 @@ class AttentiveSeq2SeqModel(Chain):
 		for layer_index in xrange(1, self.num_layers):
 			out_data = self._forward_encoder_layer(layer_index, out_data, skip_mask=skip_mask)
 
-		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		last_hidden_states = []
 		last_layer_outputs = None
@@ -334,8 +334,8 @@ class AttentiveSeq2SeqModel(Chain):
 		return last_hidden_states, last_layer_outputs
 
 	def _forward_decoder_layer(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None):
-		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout)
 		decoder = self.get_decoder(layer_index)
 		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
 			out_data = decoder(in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask)
@@ -365,8 +365,8 @@ class AttentiveSeq2SeqModel(Chain):
 		if return_last:
 			out_data = out_data[:, :, -1, None]
 
-		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
 		Y = self.dense(out_data)
@@ -374,8 +374,8 @@ class AttentiveSeq2SeqModel(Chain):
 		return Y
 
 	def _forward_decoder_layer_one_step(self, layer_index, in_data, encoder_last_hidden_states, encoder_last_layer_outputs, encoder_skip_mask=None):
-		if self.dropout:
-			in_data = F.dropout(in_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			in_data = F.dropout(in_data, ratio=self.dropout)
 
 		decoder = self.get_decoder(layer_index)
 		if isinstance(decoder, L.QRNNGlobalAttentiveDecoder):
@@ -411,8 +411,8 @@ class AttentiveSeq2SeqModel(Chain):
 		out_data = sum(in_data) if self.densely_connected else out_data	# dense conv
 		out_data = out_data[:, :, -1, None]
 			
-		if self.dropout:
-			out_data = F.dropout(out_data, ratio=self.dropout_ratio, train=not test)
+		if self.using_dropout:
+			out_data = F.dropout(out_data, ratio=self.dropout)
 
 		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (batchsize, self.ndim_h))
 		Y = self.dense(out_data)
