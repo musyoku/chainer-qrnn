@@ -12,7 +12,7 @@ from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
 from dataset import sample_batch_from_bucket, make_source_target_pair, read_data, make_buckets
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, stdout, print_bold, bucket_sizes
-from model import load_model
+from model import load_model, load_vocab
 
 def _broadcast_to(array, shape):
 	if hasattr(numpy, "broadcast_to"):
@@ -312,7 +312,8 @@ def compute_random_perplexity(model, buckets, batchsize=100):
 
 def main(args):
 	# load textfile
-	dataset_train, dataset_dev, dataset_test, vocab, vocab_inv = read_data(args.train_filename, args.dev_filename, args.test_filename)
+	vocab, vocab_inv = load_vocab(args.model_dir)
+	dataset_train, dataset_dev, dataset_test, _, _ = read_data(args.train_filename, args.dev_filename, args.test_filename, vocab=vocab)
 	vocab_size = len(vocab)
 	print_bold("data	#	hash")
 	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))

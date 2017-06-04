@@ -6,8 +6,8 @@ import numpy as np
 import chainer
 from chainer import cuda, Variable, function, link, functions, links, initializers
 from chainer.utils import type_check
-from chainer.links import EmbedID, Linear, BatchNormalization
-from convolution_1d import Convolution1D
+from chainer.links import EmbedID, Linear, BatchNormalization, ConvolutionND
+from convolution_1d import Convolution1D as WeightnormConvolution1D
 
 class Zoneout(function.Function):
 	def __init__(self, p):
@@ -38,10 +38,10 @@ class QRNN(link.Chain):
 		self.num_split = len(pooling) + 1
 		if weightnorm:
 			wstd = 0.05
-			W = Convolution1D(in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialV=initializers.HeNormal(wstd))
+			W = WeightnormConvolution1D(in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialV=initializers.Normal(wstd))
 		else:
 			wstd = math.sqrt(wgain / in_channels / kernel_size)
-			W = links.ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.HeNormal(wstd))
+			W = ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.Normal(wstd))
 
 		super(QRNN, self).__init__(W=W)
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout = in_channels, out_channels, kernel_size, pooling, zoneout
@@ -222,15 +222,15 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 
 		if skip_mask is not None:
 			assert skip_mask.shape[1] == H_enc.shape[2]
-			softmax_getas = (skip_mask == 0) * -1e6
+			softmax_bias = (skip_mask == 0) * -1e6
 
 		# compute attention weights (eq.8)
 		H_enc = functions.swapaxes(H_enc, 1, 2)
 		for t in xrange(T):
 			ct = self.contexts[t]
-			geta = 0 if skip_mask is None else softmax_getas[..., None]	# to skip PAD
+			bias = 0 if skip_mask is None else softmax_bias[..., None]	# to skip PAD
 			mask = 1 if skip_mask is None else skip_mask[..., None]		# to skip PAD
-			alpha = functions.batch_matmul(H_enc, ct) + geta
+			alpha = functions.batch_matmul(H_enc, ct) + bias
 			alpha = functions.softmax(alpha) * mask
 			alpha = functions.broadcast_to(alpha, H_enc.shape)	# copy
 			kt = functions.sum(alpha * H_enc, axis=1)
@@ -271,15 +271,15 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 
 		if skip_mask is not None:
 			assert skip_mask.shape[1] == H_enc.shape[2]
-			softmax_getas = (skip_mask == 0) * -1e6
+			softmax_bias = (skip_mask == 0) * -1e6
 
 		# compute attention weights (eq.8)
 		H_enc = functions.swapaxes(H_enc, 1, 2)
 		for t in xrange(T):
 			ct = self.contexts[t - T]
-			geta = 0 if skip_mask is None else softmax_getas[..., None]	# to skip PAD
+			bias = 0 if skip_mask is None else softmax_bias[..., None]	# to skip PAD
 			mask = 1 if skip_mask is None else skip_mask[..., None]		# to skip PAD
-			alpha = functions.batch_matmul(H_enc, ct) + geta
+			alpha = functions.batch_matmul(H_enc, ct) + bias
 			alpha = functions.softmax(alpha) * mask
 			alpha = functions.broadcast_to(alpha, H_enc.shape)	# copy
 			kt = functions.sum(alpha * H_enc, axis=1)

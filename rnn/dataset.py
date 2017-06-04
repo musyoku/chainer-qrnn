@@ -4,13 +4,14 @@ import numpy as np
 from six.moves import xrange
 from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes
 
-def read_data(filename_train=None, filename_dev=None, filename_test=None):
-	vocab = {
-		"<pad>": ID_PAD,
-		"<unk>": ID_UNK,
-		"<bos>": ID_BOS,
-		"<eos>": ID_EOS,
-	}
+def read_data(filename_train=None, filename_dev=None, filename_test=None, vocab=None):
+	if vocab is None:
+		vocab = {
+			"<pad>": ID_PAD,
+			"<unk>": ID_UNK,
+			"<bos>": ID_BOS,
+			"<eos>": ID_EOS,
+		}
 	dataset_train = []
 	dataset_dev = []
 	dataset_test = []
@@ -48,7 +49,7 @@ def read_data(filename_train=None, filename_dev=None, filename_test=None):
 				dataset_dev.append(word_ids)
 
 	if filename_test is not None:
-		with codecs.open(filename_dev, "r", "utf-8") as f:
+		with codecs.open(filename_test, "r", "utf-8") as f:
 			for sentence in f:
 				sentence = sentence.strip()
 				if len(sentence) == 0:

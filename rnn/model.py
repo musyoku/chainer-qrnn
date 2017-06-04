@@ -1,7 +1,7 @@
-import sys, os, json, pickle
+import sys, os, json, pickle, math
 import chainer.functions as F
 from six.moves import xrange
-from chainer import Chain, serializers
+from chainer import Chain, serializers, initializers
 sys.path.append(os.pardir)
 import qrnn as L
 
@@ -85,7 +85,6 @@ class RNNModel(Chain):
 	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=0, dropout=0, weightnorm=False, wgain=1, densely_connected=False, ignore_label=None):
 		super(RNNModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
-			dense=L.Linear(ndim_h, vocab_size),
 		)
 		assert num_layers > 0
 		self.vocab_size = vocab_size
@@ -105,6 +104,13 @@ class RNNModel(Chain):
 		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
 		for i in xrange(1, num_layers):
 			self.add_link("qrnn{}".format(i), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
+
+		wstd = math.sqrt(wgain / ndim_h)
+		if weightnorm:
+			dense = L.WeightnormConvolution1D(ndim_h, vocab_size, 1, stride=1, pad=0, initialV=initializers.Normal(wstd))
+		else:
+			dense = L.ConvolutionND(1, ndim_h, vocab_size, 1, stride=1, pad=0, initialW=initializers.Normal(wstd))
+		self.add_link("dense", dense)
 
 	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))
@@ -145,10 +151,10 @@ class RNNModel(Chain):
 		if self.dropout:
 			out_data = F.dropout(out_data, ratio=self.dropout)
 
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
-		Y = self.dense(out_data)
+		out_data = self.dense(out_data)
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.vocab_size))
 
-		return Y
+		return out_data
 
 	def _forward_layer_one_step(self, layer_index, in_data):
 		rnn = self.get_rnn_layer(layer_index)
@@ -186,8 +192,8 @@ class RNNModel(Chain):
 		if self.dropout:
 			out_data = F.dropout(out_data, ratio=self.dropout)
 			
-		out_data = out_data[:, :, -1, None]
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
-		Y = self.dense(out_data)
+		out_data = out_data[..., -1, None]
+		out_data = self.dense(out_data)
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.vocab_size))
 
-		return Y
+		return out_data
