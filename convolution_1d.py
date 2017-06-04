@@ -2,7 +2,7 @@
 import math
 import numpy as np
 from six import moves
-from chainer import cuda, Variable, initializers, link, functions
+from chainer import cuda, Variable, Parameter, initializers, link, functions
 from chainer.functions.connection import convolution_nd
 from chainer.utils import conv_nd, type_check
 
@@ -95,9 +95,10 @@ class Convolution1D(link.Link):
 
 		self.initialV = initialV
 
-		V_shape = (out_channels, in_channels) + ksize
-		initialV = initializers._get_initializer(initialV)
-		self.add_param("V", V_shape, initializer=initialV)
+		with self.init_scope():
+			V_shape = (out_channels, in_channels) + ksize
+			initialV = initializers._get_initializer(initialV)
+			self.V = Parameter(initialV, V_shape)
 
 		if nobias:
 			self.b = None
@@ -118,14 +119,15 @@ class Convolution1D(link.Link):
 		self.std_t = xp.sqrt(xp.var(t, axis=(0, 2)))	# calculate stddev for each channel
 		g = 1 / self.std_t
 		b = -self.mean_t / self.std_t
-
+		
 		# print("g <- {}, b <- {}".format(g.reshape((-1,)), b.reshape((-1,))))
 
-		if self.nobias == False:
-			self.add_param("b", self.out_channels, initializer=initializers.Constant(b.reshape((-1,)), dtype=t.dtype))
+		with self.init_scope():
+			if self.nobias == False:
+				self.b = Parameter(b, b.shape)
 
-		g_shape = (self.out_channels, 1) + (1,) * len(self.ksize)
-		self.add_param("g", g_shape, initializer=initializers.Constant(g.reshape(g_shape), dtype=t.dtype))
+			g_shape = (self.out_channels, 1) + (1,) * len(self.ksize)
+			self.g = Parameter(g.reshape(g_shape), g_shape)
 
 	def __call__(self, x):
 

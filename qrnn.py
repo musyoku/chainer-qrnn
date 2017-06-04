@@ -9,6 +9,11 @@ from chainer.utils import type_check
 from chainer.links import EmbedID, Linear, BatchNormalization, ConvolutionND
 from convolution_1d import Convolution1D as WeightnormConvolution1D
 
+def Convolution1D(in_channels, out_channels, ksize, stride=1, pad=0, initialW=None, weightnorm=False):
+	if weightnorm:
+		return WeightnormConvolution1D(in_channels, out_channels, ksize, stride=stride, pad=pad, initialV=initialW)
+	return ConvolutionND(1, in_channels, out_channels, ksize, stride=stride, pad=pad, initialW=initialW)
+
 class Zoneout(function.Function):
 	def __init__(self, p):
 		self.p = p
@@ -36,14 +41,8 @@ def zoneout(x, ratio=.5):
 class QRNN(link.Chain):
 	def __init__(self, in_channels, out_channels, kernel_size=2, pooling="f", zoneout=0, wgain=1., weightnorm=False):
 		self.num_split = len(pooling) + 1
-		if weightnorm:
-			wstd = 0.05
-			W = WeightnormConvolution1D(in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialV=initializers.Normal(wstd))
-		else:
-			wstd = math.sqrt(wgain / in_channels / kernel_size)
-			W = ConvolutionND(1, in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, initialW=initializers.Normal(wstd))
-
-		super(QRNN, self).__init__(W=W)
+		wstd = math.sqrt(wgain / in_channels / kernel_size)
+		super(QRNN, self).__init__(W=Convolution1D(in_channels, self.num_split * out_channels, kernel_size, stride=1, pad=kernel_size - 1, weightnorm=weightnorm, initialW=initializers.Normal(wstd)))
 		self._in_channels, self._out_channels, self._kernel_size, self._pooling, self._zoneout = in_channels, out_channels, kernel_size, pooling, zoneout
 		self._using_zoneout = True if self._zoneout > 0 else False
 		self.reset_state()

@@ -1,3 +1,4 @@
+from __future__ import division
 import sys, os, json, pickle, math
 import chainer.functions as F
 from six.moves import xrange
@@ -85,6 +86,7 @@ class RNNModel(Chain):
 	def __init__(self, vocab_size, ndim_embedding, num_layers, ndim_h, kernel_size=4, pooling="fo", zoneout=0, dropout=0, weightnorm=False, wgain=1, densely_connected=False, ignore_label=None):
 		super(RNNModel, self).__init__(
 			embed=L.EmbedID(vocab_size, ndim_embedding, ignore_label=ignore_label),
+			dense=L.Convolution1D(ndim_h, vocab_size, ksize=1, stride=1, pad=0, weightnorm=weightnorm, initialW=initializers.Normal(math.sqrt(wgain / ndim_h)))
 		)
 		assert num_layers > 0
 		self.vocab_size = vocab_size
@@ -104,13 +106,6 @@ class RNNModel(Chain):
 		self.add_link("qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
 		for i in xrange(1, num_layers):
 			self.add_link("qrnn{}".format(i), L.QRNN(ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
-
-		wstd = math.sqrt(wgain / ndim_h)
-		if weightnorm:
-			dense = L.WeightnormConvolution1D(ndim_h, vocab_size, 1, stride=1, pad=0, initialV=initializers.Normal(wstd))
-		else:
-			dense = L.ConvolutionND(1, ndim_h, vocab_size, 1, stride=1, pad=0, initialW=initializers.Normal(wstd))
-		self.add_link("dense", dense)
 
 	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))

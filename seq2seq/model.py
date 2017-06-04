@@ -1,7 +1,7 @@
-import sys, os, json, pickle
+import sys, os, json, pickle, math
 import chainer.functions as F
 from six.moves import xrange
-from chainer import Chain, serializers
+from chainer import Chain, serializers, initializers
 sys.path.append(os.pardir)
 import qrnn as L
 
@@ -97,7 +97,7 @@ class Seq2SeqModel(Chain):
 		super(Seq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
-			dense=L.Linear(ndim_h, vocab_size_dec),
+			dense=L.Convolution1D(ndim_h, vocab_size_dec, ksize=1, stride=1, pad=0, weightnorm=weightnorm, initialW=initializers.Normal(math.sqrt(wgain / ndim_h)))
 		)
 		assert num_layers > 0
 		self.vocab_size_enc = vocab_size_enc
@@ -116,13 +116,13 @@ class Seq2SeqModel(Chain):
 		self.densely_connected = densely_connected
 		self.wgain = wgain
 
-		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.encoder_kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		self.add_link("enc0", L.QRNNEncoder(ndim_embedding, ndim_h, kernel_size=self.encoder_kernel_size_first, pooling=pooling, zoneout=zoneout, wgain=wgain, weightnorm=weightnorm))
 		for i in xrange(num_layers - 1):
-			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.encoder_kernel_size_other, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("enc{}".format(i + 1), L.QRNNEncoder(ndim_h, ndim_h, kernel_size=self.encoder_kernel_size_other, pooling=pooling, zoneout=zoneout, wgain=wgain, weightnorm=weightnorm))
 
-		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
+		self.add_link("dec0", L.QRNNDecoder(ndim_embedding, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain, weightnorm=weightnorm))
 		for i in xrange(num_layers - 1):
-			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain))
+			self.add_link("dec{}".format(i + 1), L.QRNNDecoder(ndim_h, ndim_h, kernel_size=self.decoder_kernel_size, pooling=pooling, zoneout=zoneout, wgain=wgain, weightnorm=weightnorm))
 
 	def get_encoder(self, index):
 		return getattr(self, "enc{}".format(index))
@@ -205,10 +205,10 @@ class Seq2SeqModel(Chain):
 		if self.using_dropout:
 			out_data = F.dropout(out_data, ratio=self.dropout)
 
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
-		Y = self.dense(out_data)
+		out_data = self.dense(out_data)
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.vocab_size_dec))
 
-		return Y
+		return out_data
 
 	def _forward_decoder_layer_one_step(self, layer_index, in_data, encoder_last_hidden_states):
 		if self.using_dropout:
@@ -244,10 +244,10 @@ class Seq2SeqModel(Chain):
 		if self.using_dropout:
 			out_data = F.dropout(out_data, ratio=self.dropout)
 
-		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.ndim_h))
-		Y = self.dense(out_data)
+		out_data = self.dense(out_data)
+		out_data = F.reshape(F.swapaxes(out_data, 1, 2), (-1, self.vocab_size_dec))
 
-		return Y
+		return out_data
 
 class AttentiveSeq2SeqModel(Chain):
 	def __init__(self, vocab_size_enc, vocab_size_dec, ndim_embedding, ndim_h, num_layers, pooling="fo", dropout=False, zoneout=False, weightnorm=False, wgain=1, densely_connected=False):
