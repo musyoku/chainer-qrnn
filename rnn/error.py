@@ -11,7 +11,7 @@ from chainer import cuda, function
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
 from dataset import sample_batch_from_bucket, make_source_target_pair, read_data, make_buckets
-from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, stdout, print_bold, bucket_sizes
+from common import ID_PAD, ID_BOS, ID_EOS, stdout, print_bold, bucket_sizes
 from model import load_model, load_vocab
 
 def _broadcast_to(array, shape):

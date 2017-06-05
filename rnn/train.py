@@ -9,7 +9,7 @@ import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 from model import RNNModel, load_model, save_model, save_vocab
-from common import ID_UNK, ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
+from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
 from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity, softmax_cross_entropy
 
