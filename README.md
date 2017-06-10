@@ -20,7 +20,7 @@ cd rnn
 ```
 
 ```
-python train.py -train data/train.txt -dev data/dev.txt -lr 0.1 -dense -zoneout -dropout -b 64 -wd 2e-5
+python train.py -train data/train.txt -dev data/dev.txt -lr 0.1 -dense -zoneout 0.1 -dropout 0.5 -b 64 -wd 2e-5
 ```
 
 ```
@@ -66,7 +66,7 @@ cd seq2seq
 ```
 
 ```
-python train.py --source-train data/train.ja.txt --target-train data/train.en.txt --source-dev data/dev.ja.txt --target-dev data/dev.en.txt --source-test data/test.ja.txt --target-test data/test.en.txt --batchsize 64 -zoneout -dense -attention -lr 0.1
+python train.py --source-train data/train.ja.txt --target-train data/train.en.txt --source-dev data/dev.ja.txt --target-dev data/dev.en.txt --source-test data/test.ja.txt --target-test data/test.en.txt --batchsize 64 -zoneout 0.1 -dense -attention -lr 0.1
 ```
 
 ```
