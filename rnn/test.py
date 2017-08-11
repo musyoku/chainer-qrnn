@@ -26,7 +26,7 @@ def test_rnn():
 
 		model.reset_state()
 		np.random.seed(0)
-		for t in xrange(source.shape[1]):
+		for t in range(source.shape[1]):
 			y = model.forward_one_step(source[:, :t+1]).data
 			target = np.swapaxes(np.reshape(Y, (batchsize, -1, vocab_size)), 1, 2)
 			target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))

@@ -81,7 +81,7 @@ def main(args):
 	# to maintain equilibrium
 	required_interations = []
 	for data in train_buckets:
-		itr = len(data) // args.batchsize + 1
+		itr = math.ceil(len(data) / args.batchsize)
 		required_interations.append(itr)
 	total_iterations = sum(required_interations)
 	buckets_distribution = np.asarray(required_interations, dtype=float) / total_iterations
@@ -111,14 +111,14 @@ def main(args):
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
-
 			for itr in xrange(total_iterations):
 				bucket_idx = int(np.random.choice(np.arange(len(train_buckets)), size=1, p=buckets_distribution))
 				dataset = train_buckets[bucket_idx]
+				np.random.shuffle(dataset)
 				data_batch = dataset[:args.batchsize]
 				source_batch, target_batch = make_source_target_pair(data_batch)
 
-				if model.xp is cuda.cupy:
+				if args.gpu_device >= 0:
 					source_batch = cuda.to_gpu(source_batch)
 					target_batch = cuda.to_gpu(target_batch)
 
@@ -130,12 +130,6 @@ def main(args):
 				sys.stdout.write("\r" + stdout.CLEAR)
 				sys.stdout.write("\riteration {}/{}".format(itr + 1, total_iterations))
 				sys.stdout.flush()
-
-				train_buckets[bucket_idx] = np.roll(dataset, -args.batchsize, axis=0)	# shift
-
-			# shuffle
-			for bucket in train_buckets:
-				np.random.shuffle(bucket)
 
 		# serialize
 		save_model(args.model_dir, model)
