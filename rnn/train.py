@@ -11,7 +11,7 @@ from chainer.training import extensions
 from model import RNNModel, load_model, save_model, save_vocab
 from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
-from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity, softmax_cross_entropy
+from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity
 
 def get_current_learning_rate(opt):
 	if isinstance(opt, optimizers.NesterovAG):
@@ -124,7 +124,7 @@ def main(args):
 
 				model.reset_state()
 				y_batch = model(source_batch)
-				loss = softmax_cross_entropy(y_batch, target_batch, ignore_label=ID_PAD)
+				loss = F.softmax_cross_entropy(y_batch, target_batch, ignore_label=ID_PAD)
 				optimizer.update(lossfun=lambda: loss)
 
 				sys.stdout.write("\r" + stdout.CLEAR)
