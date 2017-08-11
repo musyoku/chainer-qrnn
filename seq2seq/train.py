@@ -120,7 +120,7 @@ def main(args):
 				target_batch_input, target_batch_output = make_source_target_pair(target_batch)
 
 				# to gpu
-				if model.xp is cuda.cupy:
+				if args.gpu_device >= 0:
 					skip_mask = cuda.to_gpu(skip_mask)
 					source_batch = cuda.to_gpu(source_batch)
 					target_batch_input = cuda.to_gpu(target_batch_input)
