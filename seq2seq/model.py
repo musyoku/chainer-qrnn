@@ -97,7 +97,7 @@ class Seq2SeqModel(Chain):
 		super(Seq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
-			fc=L.Convolution1D(ndim_h * num_layers if densely_connected else num_layers, vocab_size_dec, ksize=1, stride=1, pad=0, weightnorm=weightnorm, initialW=initializers.Normal(math.sqrt(wgain / ndim_h)))
+			fc=L.Convolution1D(ndim_h * num_layers if densely_connected else ndim_h, vocab_size_dec, ksize=1, stride=1, pad=0, weightnorm=weightnorm, initialW=initializers.Normal(math.sqrt(wgain / ndim_h)))
 		)
 		assert num_layers > 0
 		self.vocab_size_enc = vocab_size_enc
@@ -255,7 +255,7 @@ class AttentiveSeq2SeqModel(Chain):
 		super(AttentiveSeq2SeqModel, self).__init__(
 			encoder_embed=L.EmbedID(vocab_size_enc, ndim_embedding, ignore_label=0),
 			decoder_embed=L.EmbedID(vocab_size_dec, ndim_embedding, ignore_label=0),
-			fc=L.Convolution1D(ndim_h * num_layers if densely_connected else num_layers, vocab_size_dec, ksize=1, stride=1, pad=0, weightnorm=weightnorm, initialW=initializers.Normal(math.sqrt(wgain / ndim_h)))
+			fc=L.Convolution1D(ndim_h * num_layers if densely_connected else ndim_h, vocab_size_dec, ksize=1, stride=1, pad=0, weightnorm=weightnorm, initialW=initializers.Normal(math.sqrt(wgain / ndim_h)))
 		)
 		assert num_layers > 0
 		self.vocab_size_enc = vocab_size_enc
