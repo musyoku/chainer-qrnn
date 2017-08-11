@@ -13,33 +13,7 @@ from dataset import read_data_and_vocab, make_buckets, make_source_target_pair, 
 from model import seq2seq, load_model, save_model, save_vocab
 from error import compute_error_rate_buckets, compute_random_error_rate_buckets, softmax_cross_entropy
 from translate import dump_random_source_target_translation
-
-def get_current_learning_rate(opt):
-	if isinstance(opt, optimizers.NesterovAG):
-		return opt.lr
-	if isinstance(opt, optimizers.Adam):
-		return opt.alpha
-	raise NotImplementationError()
-
-def get_optimizer(name, lr, momentum):
-	if name == "nesterov":
-		return optimizers.NesterovAG(lr=lr, momentum=momentum)
-	if name == "adam":
-		return optimizers.Adam(alpha=lr, beta1=momentum)
-	raise NotImplementationError()
-
-def decay_learning_rate(opt, factor, final_value):
-	if isinstance(opt, optimizers.NesterovAG):
-		if opt.lr <= final_value:
-			return
-		opt.lr *= factor
-		return
-	if isinstance(opt, optimizers.Adam):
-		if opt.alpha <= final_value:
-			return
-		opt.alpha *= factor
-		return
-	raise NotImplementationError()
+from optim import get_current_learning_rate, get_optimizer, decay_learning_rate
 
 # reference
 # https://www.tensorflow.org/tutorials/seq2seq

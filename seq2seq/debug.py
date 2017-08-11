@@ -29,7 +29,7 @@ def test_seq2seq():
 	Y = model.decode(dec_data, ht)
 
 	model.reset_decoder_state()
-	for t in xrange(dec_seq_length):
+	for t in range(dec_seq_length):
 		y = model.decode_one_step(dec_data[:, :t+1], ht).data
 		target = np.swapaxes(np.reshape(Y.data, (batchsize, -1, dec_vocab_size)), 1, 2)
 		target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))
@@ -57,7 +57,7 @@ def test_attentive_seq2seq():
 	Y = model.decode(dec_data, ht, H, skip_mask)
 
 	model.reset_decoder_state()
-	for t in xrange(dec_seq_length):
+	for t in range(dec_seq_length):
 		y = model.decode_one_step(dec_data[:, :t+1], ht, H, skip_mask).data
 		target = np.swapaxes(np.reshape(Y.data, (batchsize, -1, dec_vocab_size)), 1, 2)
 		target = np.reshape(np.swapaxes(target[:, :, t, None], 1, 2), (batchsize, -1))

@@ -12,42 +12,7 @@ from model import RNNModel, load_model, save_model, save_vocab
 from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, print_bold
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
 from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity
-
-def get_current_learning_rate(opt):
-	if isinstance(opt, optimizers.NesterovAG):
-		return opt.lr
-	if isinstance(opt, optimizers.Adam):
-		return opt.alpha
-	if isinstance(opt, optimizers.SGD):
-		return opt.lr
-	raise NotImplementationError()
-
-def get_optimizer(name, lr, momentum):
-	if name == "nesterov":
-		return optimizers.NesterovAG(lr=lr, momentum=momentum)
-	if name == "adam":
-		return optimizers.Adam(alpha=lr, beta1=momentum)
-	if name == "sgd":
-		return optimizers.SGD(lr=lr)
-	raise NotImplementationError()
-
-def decay_learning_rate(opt, factor, final_value):
-	if isinstance(opt, optimizers.NesterovAG):
-		if opt.lr <= final_value:
-			return
-		opt.lr *= factor
-		return
-	if isinstance(opt, optimizers.SGD):
-		if opt.lr <= final_value:
-			return
-		opt.lr *= factor
-		return
-	if isinstance(opt, optimizers.Adam):
-		if opt.alpha <= final_value:
-			return
-		opt.alpha *= factor
-		return
-	raise NotImplementationError()
+from optim import get_current_learning_rate, get_optimizer, decay_learning_rate
 
 def main(args):
 	# load textfile
