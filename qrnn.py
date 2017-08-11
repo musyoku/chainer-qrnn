@@ -145,7 +145,9 @@ class QRNNDecoder(QRNN):
 		super(QRNNDecoder, self).__init__(in_channels, out_channels, kernel_size, pooling, zoneout, wgain, weightnorm)
 		self.num_split = len(pooling) + 1
 		wstd = math.sqrt(wgain / in_channels / kernel_size)
-		self.add_link("V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
+
+		with self.init_scope():
+			setattr(self, "V", links.Linear(out_channels, self.num_split * out_channels, initialW=initializers.Normal(wstd)))
 
 	# ht_enc is the last encoder state
 	def __call__(self, X, ht_enc):
@@ -187,7 +189,8 @@ class QRNNGlobalAttentiveDecoder(QRNNDecoder):
 	def __init__(self, in_channels, out_channels, kernel_size=2, zoneout=False, wgain=1., weightnorm=False):
 		super(QRNNGlobalAttentiveDecoder, self).__init__(in_channels, out_channels, kernel_size, "fo", zoneout, wgain, weightnorm)
 		wstd = math.sqrt(wgain / in_channels / kernel_size)
-		self.add_link('o', links.Linear(2 * out_channels, out_channels, initialW=initializers.Normal(wstd)))
+		with self.init_scope():
+			setattr(self, "o", links.Linear(2 * out_channels, out_channels, initialW=initializers.Normal(wstd)))
 
 	# X is the input of the decoder
 	# ht_enc is the last encoder state

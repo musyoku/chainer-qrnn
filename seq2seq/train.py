@@ -89,7 +89,6 @@ def main(args):
 	optimizer.add_hook(chainer.optimizer.GradientClipping(args.grad_clip))
 	optimizer.add_hook(chainer.optimizer.WeightDecay(args.weight_decay))
 	final_learning_rate = 1e-5
-	decay_factor = 0.95
 	total_time = 0
 
 	indices_train = []
@@ -179,7 +178,7 @@ def main(args):
 			print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
-		decay_learning_rate(optimizer, decay_factor, final_learning_rate)
+		decay_learning_rate(optimizer, args.lr_decay_factor, final_learning_rate)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -197,6 +196,7 @@ if __name__ == "__main__":
 	parser.add_argument("--grad-clip", "-gc", type=float, default=0.1) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=2e-4) 
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
+	parser.add_argument("--lr-decay-factor", "-decay", type=float, default=0.98)
 	parser.add_argument("--momentum", "-mo", type=float, default=0.99)
 	parser.add_argument("--optimizer", "-opt", type=str, default="nesterov")
 
