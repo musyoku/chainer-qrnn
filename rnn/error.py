@@ -2,16 +2,14 @@
 from __future__ import division
 from __future__ import print_function
 import math, sys, argparse
+import chainer
 import numpy as np
 import chainer.functions as F
-import chainer
-from functools import reduce
-from six.moves import xrange
 from chainer import cuda, function
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
 from dataset import sample_batch_from_bucket, make_source_target_pair, read_data, make_buckets
-from common import ID_PAD, ID_BOS, ID_EOS, stdout, print_bold, bucket_sizes
+from common import ID_PAD, ID_BOS, ID_EOS, stdout, _print, bprint, bucket_sizes
 from model import load_model, load_vocab
 
 def _broadcast_to(array, shape):
@@ -38,19 +36,17 @@ def compute_accuracy(model, buckets, batchsize=100):
 			num_sections = len(dataset) // batchsize - 1
 			if len(dataset) % batchsize > 0:
 				num_sections += 1
-			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+			indices = [(i + 1) * batchsize for i in range(num_sections)]
 			sections = np.split(dataset, indices, axis=0)
 		else:
 			sections = [dataset]
 		# compute accuracy
 		for batch_index, batch in enumerate(sections):
-			sys.stdout.write("\rcomputing accuracy ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(buckets), batch_index + 1, len(sections)))
-			sys.stdout.flush()
+			_print("computing accuracy ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(buckets), batch_index + 1, len(sections)))
 			acc.append(compute_accuracy_batch(model, batch))
 
 		result.append(sum(acc) / len(acc))
-		sys.stdout.write("\r" + stdout.CLEAR)
-		sys.stdout.flush()
+		_print("")
 
 	return result
 
@@ -83,7 +79,7 @@ def compute_perplexity(model, buckets, batchsize=100):
 			num_sections = len(dataset) // batchsize - 1
 			if len(dataset) % batchsize > 0:
 				num_sections += 1
-			indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+			indices = [(i + 1) * batchsize for i in range(num_sections)]
 			sections = np.split(dataset, indices, axis=0)
 		else:
 			sections = [dataset]
@@ -111,7 +107,7 @@ def main(args):
 	vocab, vocab_inv = load_vocab(args.model_dir)
 	dataset_train, dataset_dev, dataset_test, _, _ = read_data(args.train_filename, args.dev_filename, args.test_filename, vocab=vocab)
 	vocab_size = len(vocab)
-	print_bold("data	#	hash")
+	bprint("data	#	hash")
 	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))
 	if len(dataset_dev) > 0:
 		print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
@@ -122,7 +118,7 @@ def main(args):
 	# split into buckets
 	buckets_train = None
 	if len(dataset_train) > 0:
-		print_bold("buckets	#data	(train)")
+		bprint("buckets	#data	(train)")
 		buckets_train = make_buckets(dataset_train)
 		if args.buckets_slice is not None:
 			buckets_train = buckets_train[:args.buckets_slice + 1]
@@ -131,7 +127,7 @@ def main(args):
 
 	buckets_dev = None
 	if len(dataset_dev) > 0:
-		print_bold("buckets	#data	(dev)")
+		bprint("buckets	#data	(dev)")
 		buckets_dev = make_buckets(dataset_dev)
 		if args.buckets_slice is not None:
 			buckets_dev = buckets_dev[:args.buckets_slice + 1]
@@ -140,7 +136,7 @@ def main(args):
 
 	buckets_test = None
 	if len(dataset_test) > 0:
-		print_bold("buckets	#data	(test)")
+		bprint("buckets	#data	(test)")
 		buckets_test = make_buckets(dataset_test)
 		if args.buckets_slice is not None:
 			buckets_test = buckets_test[:args.buckets_slice + 1]
@@ -163,17 +159,17 @@ def main(args):
 
 	with chainer.using_config("train", False):
 		if buckets_train is not None:
-			print_bold("ppl (train)")
+			bprint("ppl (train)")
 			ppl_train = compute_perplexity(model, buckets_train, args.batchsize)
 			print(mean(ppl_train), ppl_train)
 
 		if buckets_dev is not None:
-			print_bold("ppl (dev)")
+			bprint("ppl (dev)")
 			ppl_dev = compute_perplexity(model, buckets_dev, args.batchsize)
 			print(mean(ppl_dev), ppl_dev)
 
 		if buckets_test is not None:
-			print_bold("ppl (test)")
+			bprint("ppl (test)")
 			ppl_test = compute_perplexity(model, buckets_test, args.batchsize)
 			print(mean(ppl_test), ppl_dev)
 

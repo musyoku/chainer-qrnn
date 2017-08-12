@@ -1,7 +1,6 @@
 from __future__ import division
 import sys, os, json, pickle, math
 import chainer.functions as F
-from six.moves import xrange
 from chainer import Chain, serializers, initializers
 sys.path.append(os.pardir)
 import qrnn as L
@@ -105,14 +104,14 @@ class RNNModel(Chain):
 
 		with self.init_scope():
 			setattr(self, "qrnn0", L.QRNN(ndim_embedding, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
-			for i in xrange(1, num_layers):
+			for i in range(1, num_layers):
 				setattr(self, "qrnn{}".format(i), L.QRNN(ndim_h * i if densely_connected else ndim_h, ndim_h, kernel_size=kernel_size, pooling=pooling, zoneout=zoneout, weightnorm=weightnorm, wgain=wgain))
 
 	def get_rnn_layer(self, index):
 		return getattr(self, "qrnn{}".format(index))
 
 	def reset_state(self):
-		for i in xrange(self.num_layers):
+		for i in range(self.num_layers):
 			self.get_rnn_layer(i).reset_state()
 
 	def _forward_layer(self, layer_index, in_data):
@@ -133,7 +132,7 @@ class RNNModel(Chain):
 		out_data = self._forward_layer(0, enmbedding)
 		in_data = [out_data]
 
-		for layer_index in xrange(1, self.num_layers):
+		for layer_index in range(1, self.num_layers):
 			out_data = self._forward_layer(layer_index, F.concat(in_data) if self.densely_connected else in_data[-1])	# dense conv
 			in_data.append(out_data)
 
@@ -173,7 +172,7 @@ class RNNModel(Chain):
 		out_data = self._forward_layer_one_step(0, enmbedding)[:, :, -ksize:]
 		in_data = [out_data]
 		
-		for layer_index in xrange(1, self.num_layers):
+		for layer_index in range(1, self.num_layers):
 			out_data = self._forward_layer_one_step(layer_index, F.concat(in_data) if self.densely_connected else in_data[-1])[:, :, -ksize:]	# dense conv
 			in_data.append(out_data)
 

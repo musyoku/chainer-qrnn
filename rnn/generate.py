@@ -1,7 +1,6 @@
 # coding: utf-8
 from __future__ import division
 from __future__ import print_function
-from six.moves import xrange
 import chainer
 import argparse, sys, os
 import numpy as np
@@ -20,7 +19,7 @@ def main(args):
 	vocab_size = model.vocab_size
 
 	with chainer.using_config("train", False):
-		for n in xrange(args.num_generate):
+		for n in range(args.num_generate):
 			word_ids = np.arange(0, vocab_size, dtype=np.int32)
 			token = ID_BOS
 			x = np.asarray([[token]]).astype(np.int32)

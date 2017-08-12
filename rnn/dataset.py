@@ -1,7 +1,6 @@
 # coding: utf-8
 import codecs, random
 import numpy as np
-from six.moves import xrange
 from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes
 
 def read_data(filename_train=None, filename_dev=None, filename_test=None, vocab=None):
@@ -80,14 +79,14 @@ def make_buckets(dataset):
 		if len(word_ids) > max_length:
 			max_length = len(word_ids)
 	bucket_sizes.append(max_length)
-	buckets_list = [[] for _ in xrange(len(bucket_sizes))]
+	buckets_list = [[] for _ in range(len(bucket_sizes))]
 	for word_ids in dataset:
 		length = len(word_ids)
 		bucket_index = 0
 		for size in bucket_sizes:
 			if length <= size:
 				if size - length > 0:
-					for _ in xrange(size - length):
+					for _ in range(size - length):
 						word_ids.append(ID_PAD)
 				break
 			bucket_index += 1
