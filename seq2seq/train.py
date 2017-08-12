@@ -1,14 +1,13 @@
 # coding: utf-8
 from __future__ import division
 from __future__ import print_function
-from six.moves import xrange
 import argparse, sys, os, codecs, random, math, time
 import numpy as np
 import chainer
 import chainer.functions as F
 from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
-from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
+from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, printb, printr
 from dataset import read_data_and_vocab, make_buckets, make_source_target_pair, sample_batch_from_bucket
 from model import seq2seq, load_model, save_model, save_vocab
 from error import compute_error_rate_buckets, compute_random_error_rate_buckets, softmax_cross_entropy
@@ -18,24 +17,46 @@ from optim import get_current_learning_rate, get_optimizer, decay_learning_rate
 # reference
 # https://www.tensorflow.org/tutorials/seq2seq
 
-def main(args):
-	# load textfile
-	source_dataset, target_dataset, vocab, vocab_inv = read_data_and_vocab(args.source_train, args.target_train, args.source_dev, args.target_dev, args.source_test, args.target_test, reverse_source=True)
-	save_vocab(args.model_dir, vocab, vocab_inv)
-
+def dump_dataset(source_dataset, vocab, source_bucket):
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
-	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
-	print_bold("data	#")
+	vocab_source, vocab_target = vocab
+	source_buckets_train, source_buckets_dev, source_buckets_test = source_bucket
+
+	printb("data	#")
 	print("train	{}".format(len(source_dataset_train)))
 	if len(source_dataset_dev) > 0:
 		print("dev	{}".format(len(source_dataset_dev)))
 	if len(source_dataset_test) > 0:
 		print("test	{}".format(len(source_dataset_test)))
 
-	vocab_source, vocab_target = vocab
-	vocab_inv_source, vocab_inv_target = vocab_inv
 	print("vocab	{}	(source)".format(len(vocab_source)))
 	print("vocab	{}	(target)".format(len(vocab_target)))
+
+
+	printb("buckets 	#data	(train)")
+	for size, data in zip(bucket_sizes, source_buckets_train):
+		print("{} 	{}".format(size, len(data)))
+
+	if source_buckets_dev:
+		printb("buckets 	#data	(dev)")
+		for size, data in zip(bucket_sizes, source_buckets_dev):
+			print("{} 	{}".format(size, len(data)))
+
+	if source_buckets_test:
+		printb("buckets		#data	(test)")
+		for size, data in zip(bucket_sizes, source_buckets_test):
+			print("{} 	{}".format(size, len(data)))
+
+def main(args):
+	source_dataset, target_dataset, vocab, vocab_inv = read_data_and_vocab(args.source_train, args.target_train, args.source_dev, args.target_dev, args.source_test, args.target_test, reverse_source=True)
+
+	save_vocab(args.model_dir, vocab, vocab_inv)
+
+	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
+	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
+
+	vocab_source, vocab_target = vocab
+	vocab_inv_source, vocab_inv_target = vocab_inv
 
 	# split into buckets
 	source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
@@ -43,29 +64,24 @@ def main(args):
 		source_buckets_train = source_buckets_train[:args.buckets_slice + 1]
 		target_buckets_train = target_buckets_train[:args.buckets_slice + 1]
 
-	print_bold("buckets 	#data	(train)")
-	for size, data in zip(bucket_sizes, source_buckets_train):
-		print("{} 	{}".format(size, len(data)))
-
+	# development dataset
 	source_buckets_dev = None
 	if len(source_dataset_dev) > 0:
-		print_bold("buckets 	#data	(dev)")
 		source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
 		if args.buckets_slice is not None:
 			source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
 			target_buckets_dev = target_buckets_dev[:args.buckets_slice + 1]
-		for size, data in zip(bucket_sizes, source_buckets_dev):
-			print("{} 	{}".format(size, len(data)))
 
+	# test dataset
 	source_buckets_test = None
 	if len(source_dataset_test) > 0:
-		print_bold("buckets		#data	(test)")
 		source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
 		if args.buckets_slice is not None:
 			source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
 			target_buckets_test = target_buckets_test[:args.buckets_slice + 1]
-		for size, data in zip(bucket_sizes, source_buckets_test):
-			print("{} 	{}".format(size, len(data)))
+
+	# show log
+	dump_dataset(source_dataset, vocab, (source_buckets_train, source_buckets_dev, source_buckets_test))
 
 	# to maintain equilibrium
 	required_interations = []
@@ -79,6 +95,7 @@ def main(args):
 	model = load_model(args.model_dir)
 	if model is None:
 		model = seq2seq(len(vocab_source), len(vocab_target), args.ndim_embedding, args.ndim_h, args.num_layers, pooling=args.pooling, dropout=args.dropout, zoneout=args.zoneout, weightnorm=args.weightnorm, wgain=args.wgain, densely_connected=args.densely_connected, attention=args.attention)
+
 	if args.gpu_device >= 0:
 		cuda.get_device(args.gpu_device).use()
 		model.to_gpu()
@@ -101,13 +118,13 @@ def main(args):
 		return sum(l) / len(l)
 
 	# training
-	for epoch in xrange(1, args.epoch + 1):
+	for epoch in range(1, args.epoch + 1):
 		print("Epoch", epoch)
 		start_time = time.time()
 
 		with chainer.using_config("train", True):
 
-			for itr in xrange(total_iterations):
+			for itr in range(total_iterations):
 				bucket_idx = int(np.random.choice(np.arange(len(source_buckets_train)), size=1, p=buckets_distribution))
 				source_bucket = source_buckets_train[bucket_idx]
 				target_bucket = target_buckets_train[bucket_idx]
@@ -129,24 +146,23 @@ def main(args):
 				model.reset_state()
 				if args.attention:
 					last_hidden_states, last_layer_outputs = model.encode(source_batch, skip_mask)
-					Y = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
+					y_batch = model.decode(target_batch_input, last_hidden_states, last_layer_outputs, skip_mask)
 				else:
 					last_hidden_states = model.encode(source_batch, skip_mask)
-					Y = model.decode(target_batch_input, last_hidden_states)
-				loss = softmax_cross_entropy(Y, target_batch_output, ignore_label=ID_PAD)
+					y_batch = model.decode(target_batch_input, last_hidden_states)
+				loss = softmax_cross_entropy(y_batch, target_batch_output, ignore_label=ID_PAD)
 
 				# update parameters
 				optimizer.update(lossfun=lambda: loss)
 
-				sys.stdout.write("\r" + stdout.CLEAR)
-				sys.stdout.write("\riteration {}/{}".format(itr + 1, total_iterations))
-				sys.stdout.flush()
+				# show log
+				printr("iteration {}/{}".format(itr + 1, total_iterations))
 
 				source_buckets_train[bucket_idx] = np.roll(source_bucket, -args.batchsize, axis=0)	# shift
 				target_buckets_train[bucket_idx] = np.roll(target_bucket, -args.batchsize, axis=0)	# shift
 
 			# shuffle
-			for bucket_idx in xrange(len(source_buckets_train)):
+			for bucket_idx in range(len(source_buckets_train)):
 				indices = indices_train[bucket_idx]
 				np.random.shuffle(indices)
 				source_buckets_train[bucket_idx] = source_buckets_train[bucket_idx][indices]
@@ -155,27 +171,27 @@ def main(args):
 		# serialize
 		save_model(args.model_dir, model)
 
+		# clear console
+		printr("")
+
 		# show log
 		with chainer.using_config("train", False):
-			sys.stdout.write("\r" + stdout.CLEAR)
-			sys.stdout.flush()
-
 			if epoch % args.interval == 0:
-				print_bold("translate (train)")
+				printb("translate (train)")
 				dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
 				if source_dataset_dev is not None:
-					print_bold("translate (dev)")
+					printb("translate (dev)")
 					dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
 				if source_dataset_dev is not None:
-					print_bold("WER (dev)")
+					printb("WER (dev)")
 					wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
 					print(mean(wer_dev), wer_dev)
 
 			elapsed_time = (time.time() - start_time) / 60.
 			total_time += elapsed_time
-			print("done in {} min, lr = {}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
+			print("done in {} min, lr = {:.4f}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
 		decay_learning_rate(optimizer, args.lr_decay_factor, final_learning_rate)

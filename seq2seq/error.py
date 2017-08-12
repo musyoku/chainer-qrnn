@@ -5,12 +5,11 @@ import argparse, sys
 import numpy as np
 import chainer.functions as F
 import chainer
-from six.moves import xrange
 from chainer import cuda, functions
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
 from model import load_model, load_vocab
-from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
+from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, printb
 from dataset import read_data, make_buckets, sample_batch_from_bucket
 from translate import translate_beam_search, translate_greedy
 
@@ -227,12 +226,12 @@ def softmax_cross_entropy(x, t, use_cudnn=True, normalize=True, cache_score=True
 def compute_error_rate_target_prediction(r, h):
 	# build the matrix
 	d = np.zeros((len(r) + 1) * (len(h) + 1), dtype=np.uint8).reshape((len(r) + 1, len(h) + 1))
-	for i in xrange(len(r) + 1):
-		for j in xrange(len(h) + 1):
+	for i in range(len(r) + 1):
+		for j in range(len(h) + 1):
 			if i == 0: d[0][j] = j
 			elif j == 0: d[i][0] = i
-	for i in xrange(1, len(r) + 1):
-		for j in xrange(1, len(h) + 1):
+	for i in range(1, len(r) + 1):
+		for j in range(1, len(h) + 1):
 			if r[i-1] == h[j-1]:
 				d[i][j] = d[i-1][j-1]
 			else:
@@ -248,7 +247,7 @@ def compute_error_rate_source_batch(model, source_batch, target_batch, target_vo
 	batchsize = source_batch.shape[0]
 	x = translate_greedy(model, source_batch, target_batch.shape[1] * 2, target_vocab_size)
 
-	for n in xrange(batchsize):
+	for n in range(batchsize):
 		target_tokens = []
 		for token in target_batch[n]:
 			token = int(token)	# to cpu
@@ -308,7 +307,7 @@ def compute_error_rate_buckets(model, source_buckets, target_buckets, target_voc
 				num_sections = len(source_bucket) // batchsize - 1
 				if len(source_bucket) % batchsize > 0:
 					num_sections += 1
-				indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+				indices = [(i + 1) * batchsize for i in range(num_sections)]
 				source_sections = np.split(source_bucket, indices, axis=0)
 				target_sections = np.split(target_bucket, indices, axis=0)
 			else:
@@ -323,7 +322,7 @@ def compute_error_rate_buckets(model, source_buckets, target_buckets, target_voc
 			result.append(sum_wer / len(source_sections) * 100)
 
 		else:	# beam search
-			for index in xrange(len(source_bucket)):
+			for index in range(len(source_bucket)):
 				sys.stdout.write("\rcomputing WER ... bucket {}/{} (sequence {}/{})".format(bucket_index + 1, len(source_buckets), index + 1, len(source_bucket)))
 				sys.stdout.flush()
 				source = source_bucket[index]
@@ -348,7 +347,7 @@ def compute_random_error_rate_buckets(model, source_buckets, target_buckets, tar
 
 		else:	# beam search
 			sum_wer = 0
-			for index in xrange(sample_size):
+			for index in range(sample_size):
 				sys.stdout.write("\rcomputing WER ... bucket {}/{} (sequence {}/{})".format(bucket_index + 1, len(source_buckets), index + 1, sample_size))
 				sys.stdout.flush()
 				source = source_batch[index]
@@ -373,7 +372,7 @@ def main(args):
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
-	print_bold("data	#")
+	printb("data	#")
 	if len(source_dataset_train) > 0:
 		print("train	{}".format(len(source_dataset_train)))
 	if len(source_dataset_dev) > 0:
@@ -388,7 +387,7 @@ def main(args):
 	# split into buckets
 	source_buckets_train = None
 	if len(source_dataset_train) > 0:
-		print_bold("buckets 	#data	(train)")
+		printb("buckets 	#data	(train)")
 		source_buckets_train, target_buckets_train = make_buckets(source_dataset_train, target_dataset_train)
 		if args.buckets_slice is not None:
 			source_buckets_train = source_buckets_train[:args.buckets_slice + 1]
@@ -398,7 +397,7 @@ def main(args):
 
 	source_buckets_dev = None
 	if len(source_dataset_dev) > 0:
-		print_bold("buckets 	#data	(dev)")
+		printb("buckets 	#data	(dev)")
 		source_buckets_dev, target_buckets_dev = make_buckets(source_dataset_dev, target_dataset_dev)
 		if args.buckets_slice is not None:
 			source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
@@ -408,7 +407,7 @@ def main(args):
 
 	source_buckets_test = None
 	if len(source_dataset_test) > 0:
-		print_bold("buckets		#data	(test)")
+		printb("buckets		#data	(test)")
 		source_buckets_test, target_buckets_test = make_buckets(source_dataset_test, target_dataset_test)
 		if args.buckets_slice is not None:
 			source_buckets_test = source_buckets_test[:args.buckets_slice + 1]
@@ -428,17 +427,17 @@ def main(args):
 
 	with chainer.using_config("train", False):
 		if source_buckets_train is not None:
-			print_bold("WER (train)")
+			printb("WER (train)")
 			wer_train = compute_error_rate_buckets(model, source_buckets_train, target_buckets_train, len(vocab_target), args.beam_width, args.alpha)
 			print(mean(wer_train), wer_train)
 
 		if source_buckets_dev is not None:
-			print_bold("WER (dev)")
+			printb("WER (dev)")
 			wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_target), args.beam_width, args.alpha)
 			print(mean(wer_dev), wer_dev)
 
 		if source_buckets_test is not None:
-			print_bold("WER (test)")
+			printb("WER (test)")
 			wer_test = compute_error_rate_buckets(model, source_buckets_test, target_buckets_test, len(vocab_target), args.beam_width, args.alpha)
 			print(mean(wer_test), wer_test)
 

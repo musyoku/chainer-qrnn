@@ -1,7 +1,6 @@
 # coding: utf-8
 from __future__ import division
 from __future__ import print_function
-from six.moves import xrange
 import argparse, sys, os, codecs, random, math
 import numpy as np
 import chainer
@@ -10,11 +9,11 @@ from chainer import training, Variable, optimizers, cuda
 from chainer.training import extensions
 sys.path.append(os.pardir)
 from model import load_model, load_vocab, Seq2SeqModel, AttentiveSeq2SeqModel
-from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, stdout, print_bold
+from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes, printb
 from dataset import sample_batch_from_bucket, read_data
 
 def make_buckets(dataset):
-	buckets_list = [[] for _ in xrange(len(bucket_sizes))]
+	buckets_list = [[] for _ in range(len(bucket_sizes))]
 	for word_ids in dataset:
 		length = len(word_ids)
 		bucket_index = 0
@@ -27,7 +26,7 @@ def make_buckets(dataset):
 
 		required_length, _ = bucket_sizes[bucket_index]
 		
-		for _ in xrange(max(required_length - length, 0)):
+		for _ in range(max(required_length - length, 0)):
 			word_ids.insert(0, ID_PAD)	# prepend
 		assert len(word_ids) == required_length
 
@@ -76,7 +75,7 @@ def translate_greedy(model, source_batch, max_predict_length, vocab_size, source
 		else:
 			x = xp.concatenate((x, xp.zeros((batchsize, 1), dtype=xp.int32)), axis=1)
 
-		for n in xrange(batchsize):
+		for n in range(batchsize):
 			pn = p.data[n]
 
 			# argmax or sampling
@@ -125,7 +124,7 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 		else:
 			result = []
 			min_value = xp.amin(array)
-			for n in xrange(k):
+			for n in range(k):
 				result.append(xp.argmax(array))
 				array[result[-1]] = min_value
 			return result
@@ -134,7 +133,7 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 	candidates = []
 	log_likelihood = []
 
-	for t in xrange(max_predict_length):
+	for t in range(max_predict_length):
 		model.reset_decoder_state()
 		if isinstance(model, AttentiveSeq2SeqModel):
 			u_t = model.decode(x, encoder_last_hidden_states, encoder_last_layer_outputs, skip_mask, return_last=True)
@@ -175,7 +174,7 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 
 		# reconstruct input sequense
 		new_sum_log_p = xp.empty_like(sum_log_p)
-		for beam in xrange(current_beam_width):
+		for beam in range(current_beam_width):
 			new_x[beam, -1] = token_table[beam]
 			backward = backward_table[beam]
 			new_x[beam, :-1] = x[backward, :-1]
@@ -190,7 +189,7 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 			new_x = x[flag]
 			sum_log_p = sum_log_p[flag]
 			stopped_x = x[xp.invert(flag)]
-			for n in xrange(len(stopped_x)):
+			for n in range(len(stopped_x)):
 				candidates.append(stopped_x[n])
 			x = new_x
 
@@ -225,7 +224,7 @@ def translate_beam_search(model, source, max_predict_length, vocab_size, beam_wi
 		scores[i] = score
 
 	if return_all_candidates == True:
-		result = [[] for i in xrange(len(candidates))]
+		result = [[] for i in range(len(candidates))]
 		indices = np.flip(np.argsort(scores), axis=0)
 		for index in indices:
 			for token in (candidates[index]):
@@ -334,19 +333,19 @@ def dump_source_translation(model, source_buckets, vocab_inv_source, vocab_inv_t
 				num_sections = len(source_bucket) // batchsize - 1
 				if len(source_bucket) % batchsize > 0:
 					num_sections += 1
-				indices = [(i + 1) * batchsize for i in xrange(num_sections)]
+				indices = [(i + 1) * batchsize for i in range(num_sections)]
 				source_sections = np.split(source_bucket, indices, axis=0)
 			else:
 				source_sections = [source_bucket]
 
 			for source_batch in source_sections:
 				translation_batch = translate_greedy(model, source_batch, source_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
-				for index in xrange(len(translation_batch)):
+				for index in range(len(translation_batch)):
 					source = source_batch[index]
 					translation = translation_batch[index]
 					dump_translation(vocab_inv_source, vocab_inv_target, source, translation)
 		else:	# beam search
-			for index in xrange(len(source_bucket)):
+			for index in range(len(source_bucket)):
 				source = source_bucket[index]
 				translations = translate_beam_search(model, source, source.size * 2, len(vocab_inv_target), beam_width, normalization_alpha, return_all_candidates=True)
 				dump_all_translation(vocab_inv_source, vocab_inv_target, source, translations)
@@ -358,14 +357,14 @@ def dump_random_source_target_translation(model, source_buckets, target_buckets,
 		
 		if beam_width == 1:	# greedy
 			translation_batch = translate_greedy(model, source_batch, target_batch.shape[1] * 2, len(vocab_inv_target), beam_width)
-			for index in xrange(len(translation_batch)):
+			for index in range(len(translation_batch)):
 				source = source_batch[index]
 				translation = translation_batch[index]
 				target = target_batch[index]
 				dump_translation(vocab_inv_source, vocab_inv_target, source, translation, target)
 
 		else:	# beam search
-			for index in xrange(len(source_batch)):
+			for index in range(len(source_batch)):
 				source = source_batch[index]
 				target = target_batch[index]
 				translation_batch = translate_beam_search(model, source, target.size * 2, len(vocab_inv_target), beam_width)
@@ -380,7 +379,7 @@ def main(args):
 
 	source_dataset_train, source_dataset_dev, source_dataset_test = source_dataset
 	target_dataset_train, target_dataset_dev, target_dataset_test = target_dataset
-	print_bold("data	#")
+	printb("data	#")
 	if len(source_dataset_train) > 0:
 		print("train	{}".format(len(source_dataset_train)))
 	if len(source_dataset_dev) > 0:
@@ -392,7 +391,7 @@ def main(args):
 	# split into buckets
 	source_buckets_train = None
 	if len(source_dataset_train) > 0:
-		print_bold("buckets 	#data	(train)")
+		printb("buckets 	#data	(train)")
 		source_buckets_train = make_buckets(source_dataset_train)
 		if args.buckets_slice is not None:
 			source_buckets_train = source_buckets_train[:args.buckets_slice + 1]
@@ -401,7 +400,7 @@ def main(args):
 
 	source_buckets_dev = None
 	if len(source_dataset_dev) > 0:
-		print_bold("buckets 	#data	(dev)")
+		printb("buckets 	#data	(dev)")
 		source_buckets_dev = make_buckets(source_dataset_dev)
 		if args.buckets_slice is not None:
 			source_buckets_dev = source_buckets_dev[:args.buckets_slice + 1]
@@ -410,7 +409,7 @@ def main(args):
 
 	source_buckets_test = None
 	if len(source_dataset_test) > 0:
-		print_bold("buckets		#data	(test)")
+		printb("buckets		#data	(test)")
 		source_buckets_test = make_buckets(source_dataset_test)
 		if args.buckets_slice is not None:
 			source_buckets_test = source_buckets_test[:args.buckets_slice + 1]

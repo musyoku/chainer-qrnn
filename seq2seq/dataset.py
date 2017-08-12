@@ -1,7 +1,6 @@
 # coding: utf-8
 import codecs, random
 import numpy as np
-from six.moves import xrange
 from common import ID_UNK, ID_PAD, ID_GO, ID_EOS, bucket_sizes
 
 def read_data_and_vocab(source_filename_train=None, target_filename_train=None, source_filename_dev=None, target_filename_dev=None, source_filename_test=None, target_filename_test=None, reverse_source=True):
@@ -116,8 +115,8 @@ def read_data(vocab_source, vocab_target, source_filename_train=None, target_fil
 # [-1, -1, -1, -1, -1, -1, 34, 1093, 22504, 16399]
 # [0, 202944, 205277, 144530, 111190, 205428, 186775, 111190, 205601, 58779, 2, -1]
 def make_buckets(source, target):
-	buckets_list_source = [[] for _ in xrange(len(bucket_sizes))]
-	buckets_list_target = [[] for _ in xrange(len(bucket_sizes))]
+	buckets_list_source = [[] for _ in range(len(bucket_sizes))]
+	buckets_list_target = [[] for _ in range(len(bucket_sizes))]
 	for word_ids_source, word_ids_target in zip(source, target):
 		source_length = len(word_ids_source)
 		target_length = len(word_ids_target)
@@ -140,11 +139,11 @@ def make_buckets(source, target):
 
 		source_size, target_size = bucket_sizes[bucket_index]
 		
-		for _ in xrange(max(source_size - source_length, 0)):
+		for _ in range(max(source_size - source_length, 0)):
 			word_ids_source.insert(0, ID_PAD)	# prepend
 		assert len(word_ids_source) == source_size
 		
-		for _ in xrange(max(target_size - target_length, 0)):
+		for _ in range(max(target_size - target_length, 0)):
 			word_ids_target.append(ID_PAD)
 		assert len(word_ids_target) == target_size
 

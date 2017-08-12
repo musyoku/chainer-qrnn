@@ -7,7 +7,7 @@ import chainer
 import chainer.functions as F
 from chainer import Variable, optimizers, cuda
 from model import RNNModel, load_model, save_model, save_vocab
-from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, printb, printr
+from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, printb, printr
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
 from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity
 from optim import get_current_learning_rate, get_optimizer, decay_learning_rate
