@@ -9,7 +9,7 @@ from chainer import cuda, function
 from chainer.utils import type_check
 from chainer.functions.activation import log_softmax
 from dataset import sample_batch_from_bucket, make_source_target_pair, read_data, make_buckets
-from common import ID_PAD, ID_BOS, ID_EOS, stdout, _print, bprint, bucket_sizes
+from common import ID_PAD, ID_BOS, ID_EOS, stdout, printr, printb, bucket_sizes
 from model import load_model, load_vocab
 
 def _broadcast_to(array, shape):
@@ -42,11 +42,11 @@ def compute_accuracy(model, buckets, batchsize=100):
 			sections = [dataset]
 		# compute accuracy
 		for batch_index, batch in enumerate(sections):
-			_print("computing accuracy ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(buckets), batch_index + 1, len(sections)))
+			printr("computing accuracy ... bucket {}/{} (batch {}/{})".format(bucket_index + 1, len(buckets), batch_index + 1, len(sections)))
 			acc.append(compute_accuracy_batch(model, batch))
 
 		result.append(sum(acc) / len(acc))
-		_print("")
+		printr("")
 
 	return result
 
@@ -102,12 +102,12 @@ def compute_random_perplexity(model, buckets, batchsize=100):
 		ppl.append(compute_perplexity_batch(model, batch))
 	return ppl
 
-def main(args):
+def main():
 	# load textfile
 	vocab, vocab_inv = load_vocab(args.model_dir)
 	dataset_train, dataset_dev, dataset_test, _, _ = read_data(args.train_filename, args.dev_filename, args.test_filename, vocab=vocab)
 	vocab_size = len(vocab)
-	bprint("data	#	hash")
+	printb("data	#	hash")
 	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))
 	if len(dataset_dev) > 0:
 		print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
@@ -118,7 +118,7 @@ def main(args):
 	# split into buckets
 	buckets_train = None
 	if len(dataset_train) > 0:
-		bprint("buckets	#data	(train)")
+		printb("buckets	#data	(train)")
 		buckets_train = make_buckets(dataset_train)
 		if args.buckets_slice is not None:
 			buckets_train = buckets_train[:args.buckets_slice + 1]
@@ -127,7 +127,7 @@ def main(args):
 
 	buckets_dev = None
 	if len(dataset_dev) > 0:
-		bprint("buckets	#data	(dev)")
+		printb("buckets	#data	(dev)")
 		buckets_dev = make_buckets(dataset_dev)
 		if args.buckets_slice is not None:
 			buckets_dev = buckets_dev[:args.buckets_slice + 1]
@@ -136,7 +136,7 @@ def main(args):
 
 	buckets_test = None
 	if len(dataset_test) > 0:
-		bprint("buckets	#data	(test)")
+		printb("buckets	#data	(test)")
 		buckets_test = make_buckets(dataset_test)
 		if args.buckets_slice is not None:
 			buckets_test = buckets_test[:args.buckets_slice + 1]
@@ -159,17 +159,17 @@ def main(args):
 
 	with chainer.using_config("train", False):
 		if buckets_train is not None:
-			bprint("ppl (train)")
+			printb("ppl (train)")
 			ppl_train = compute_perplexity(model, buckets_train, args.batchsize)
 			print(mean(ppl_train), ppl_train)
 
 		if buckets_dev is not None:
-			bprint("ppl (dev)")
+			printb("ppl (dev)")
 			ppl_dev = compute_perplexity(model, buckets_dev, args.batchsize)
 			print(mean(ppl_dev), ppl_dev)
 
 		if buckets_test is not None:
-			bprint("ppl (test)")
+			printb("ppl (test)")
 			ppl_test = compute_perplexity(model, buckets_test, args.batchsize)
 			print(mean(ppl_test), ppl_dev)
 
@@ -184,4 +184,4 @@ if __name__ == "__main__":
 	parser.add_argument("--test-filename", "-test", default=None)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	args = parser.parse_args()
-	main(args)
+	main()

@@ -8,7 +8,7 @@ import chainer.functions as F
 from model import load_model, load_vocab
 from train import ID_BOS, ID_EOS
 
-def main(args):
+def main():
 	model = load_model(args.model_dir)
 	assert model is not None
 
@@ -43,4 +43,4 @@ if __name__ == "__main__":
 	parser.add_argument("--max-sentence-length", "-max", type=int, default=50)
 	parser.add_argument("--model-dir", "-m", type=str, default="model")
 	args = parser.parse_args()
-	main(args)
+	main()

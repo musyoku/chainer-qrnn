@@ -7,24 +7,24 @@ import chainer
 import chainer.functions as F
 from chainer import Variable, optimizers, cuda
 from model import RNNModel, load_model, save_model, save_vocab
-from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, bprint, _print
+from common import ID_PAD, ID_BOS, ID_EOS, bucket_sizes, stdout, printb, printr
 from dataset import read_data, make_buckets, sample_batch_from_bucket, make_source_target_pair
 from error import compute_accuracy, compute_random_accuracy, compute_perplexity, compute_random_perplexity
 from optim import get_current_learning_rate, get_optimizer, decay_learning_rate
 
 def dump_dataset(dataset_train, dataset_dev, train_buckets, dev_buckets, vocab_size):
-	bprint("data	#	hash")
+	printb("data	#	hash")
 	print("train	{}	{}".format(len(dataset_train), hash(str(dataset_train))))
 	if len(dataset_dev) > 0:
 		print("dev	{}	{}".format(len(dataset_dev), hash(str(dataset_dev))))
 	print("vocab	{}".format(vocab_size))
 
-	bprint("buckets	#data	(train)")
+	printb("buckets	#data	(train)")
 	for size, data in zip(bucket_sizes, train_buckets):
 		print("{}	{}".format(size, len(data)))
 
 	if len(dev_buckets) > 0:
-		bprint("buckets	#data	(dev)")
+		printb("buckets	#data	(dev)")
 		for size, data in zip(bucket_sizes, dev_buckets):
 			print("{}	{}".format(size, len(data)))
 
@@ -103,17 +103,17 @@ def main():
 				optimizer.update(lossfun=lambda: loss)
 
 				# show log
-				_print("iteration {}/{}".format(itr + 1, total_iterations))
+				printr("iteration {}/{}".format(itr + 1, total_iterations))
 
 		save_model(args.model_dir, model)
 
-		# clear log
-		_print("")
+		# clear console
+		printr("")
 
 		# compute perplexity
 		with chainer.using_config("train", False):
 			if dev_buckets is not None:
-				bprint("	ppl (dev)")
+				printb("	ppl (dev)")
 				ppl_dev = compute_perplexity(model, dev_buckets, args.batchsize)
 				print("	", mean(ppl_dev), ppl_dev)
 
@@ -123,7 +123,7 @@ def main():
 		print("	done in {} min, lr = {}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
-		decay_learning_rate(optimizer, args.lr_decay, final_learning_rate)
+		decay_learning_rate(optimizer, args.lr_decay_factor, final_learning_rate)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -132,7 +132,7 @@ if __name__ == "__main__":
 	parser.add_argument("--grad-clip", "-gc", type=float, default=1) 
 	parser.add_argument("--weight-decay", "-wd", type=float, default=1e-5) 
 	parser.add_argument("--learning-rate", "-lr", type=float, default=0.01)
-	parser.add_argument("--lr-decay", "-decay", type=float, default=0.95)
+	parser.add_argument("--lr-decay-factor", "-decay", type=float, default=0.95)
 	parser.add_argument("--momentum", "-mo", type=float, default=0.99)
 	parser.add_argument("--optimizer", "-opt", type=str, default="adam")
 	
