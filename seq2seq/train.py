@@ -189,9 +189,9 @@ def main(args):
 					wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
 					print(mean(wer_dev), wer_dev)
 
-			elapsed_time = (time.time() - start_time) / 60.
-			total_time += elapsed_time
-			print("done in {} min, lr = {:.4f}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
+		elapsed_time = (time.time() - start_time) / 60.
+		total_time += elapsed_time
+		print("done in {} min, lr = {:.4f}, total {} min".format(int(elapsed_time), get_current_learning_rate(optimizer), int(total_time)))
 
 		# decay learning rate
 		decay_learning_rate(optimizer, args.lr_decay_factor, final_learning_rate)
