@@ -180,11 +180,11 @@ def main(args):
 				printb("translate (train)")
 				dump_random_source_target_translation(model, source_buckets_train, target_buckets_train, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
-				if source_dataset_dev is not None:
+				if source_buckets_dev is not None:
 					printb("translate (dev)")
 					dump_random_source_target_translation(model, source_buckets_dev, target_buckets_dev, vocab_inv_source, vocab_inv_target, num_translate=5, beam_width=1)
 
-				if source_dataset_dev is not None:
+				if source_buckets_dev is not None:
 					printb("WER (dev)")
 					wer_dev = compute_error_rate_buckets(model, source_buckets_dev, target_buckets_dev, len(vocab_inv_target), beam_width=1)
 					print(mean(wer_dev), wer_dev)

@@ -118,6 +118,8 @@ def make_buckets(source, target):
 	buckets_list_source = [[] for _ in range(len(bucket_sizes))]
 	buckets_list_target = [[] for _ in range(len(bucket_sizes))]
 	for word_ids_source, word_ids_target in zip(source, target):
+		assert isinstance(word_ids_source, list)
+		assert isinstance(word_ids_target, list)
 		source_length = len(word_ids_source)
 		target_length = len(word_ids_target)
 		# source
