@@ -22,6 +22,7 @@ def read_data_and_vocab(source_filename_train=None, target_filename_train=None, 
 	target_dataset_test = []
 
 	def add_file(filename, vocab, dataset, prefix=None, suffix=None, reverse=False):
+		assert isinstance(dataset, list)
 		if filename is None:
 			return
 		with codecs.open(filename, "r", "utf-8") as f:
@@ -42,6 +43,7 @@ def read_data_and_vocab(source_filename_train=None, target_filename_train=None, 
 					word_ids.append(suffix)
 				if reverse:
 					word_ids.reverse()
+				assert isinstance(word_ids, list)
 				dataset.append(word_ids)
 
 	add_file(source_filename_train, vocab_source, source_dataset_train, reverse=reverse_source)
@@ -139,15 +141,15 @@ def make_buckets(source, target):
 		if bucket_index >= len(bucket_sizes):
 			continue	# ignore long sequence
 
-		source_size, target_size = bucket_sizes[bucket_index]
+		source_bucket_size, target_bucket_size = bucket_sizes[bucket_index]
 		
-		for _ in range(max(source_size - source_length, 0)):
+		for _ in range(max(source_bucket_size - source_length, 0)):
 			word_ids_source.insert(0, ID_PAD)	# prepend
-		assert len(word_ids_source) == source_size
+		assert len(word_ids_source) == source_bucket_size
 		
-		for _ in range(max(target_size - target_length, 0)):
+		for _ in range(max(target_bucket_size - target_length, 0)):
 			word_ids_target.append(ID_PAD)
-		assert len(word_ids_target) == target_size
+		assert len(word_ids_target) == target_bucket_size
 
 		buckets_list_source[bucket_index].append(word_ids_source)
 		buckets_list_target[bucket_index].append(word_ids_target)
@@ -155,6 +157,8 @@ def make_buckets(source, target):
 	buckets_source = []
 	buckets_target = []
 	for bucket_source, bucket_target in zip(buckets_list_source, buckets_list_target):
+		assert isinstance(bucket_source, list)
+		assert isinstance(bucket_target, list)
 		if len(bucket_source) == 0:
 			continue
 		buckets_source.append(np.asarray(bucket_source).astype(np.int32))
